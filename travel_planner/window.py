@@ -110,6 +110,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.stop_list = Gtk.ListBox()
         self.summary_label = Gtk.Label()
         self.header_title = Gtk.Label()
+        self.move_up_button = Gtk.Button(label="Omhoog")
         self.delete_button = Gtk.Button(label="Verwijderen")
 
         self._build_interface()
@@ -194,14 +195,28 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         )
         scroller.set_child(self.stop_list)
 
+        button_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+
+        self.move_up_button.set_sensitive(False)
+        self.move_up_button.connect(
+            "clicked",
+            self._on_move_stop_up_clicked,
+        )
+
         self.delete_button.set_sensitive(False)
         self.delete_button.connect(
             "clicked",
             self._on_delete_stop_clicked,
         )
 
+        button_row.append(self.move_up_button)
+        button_row.append(self.delete_button)
+
         sidebar.append(scroller)
-        sidebar.append(self.delete_button)
+        sidebar.append(button_row)
 
         content.set_start_child(sidebar)
         content.set_end_child(self.web_view)
@@ -289,6 +304,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             row.set_child(box)
             self.stop_list.append(row)
 
+        self.move_up_button.set_sensitive(False)
         self.delete_button.set_sensitive(False)
         self._refresh_map()
 
@@ -365,7 +381,39 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         _list_box: Gtk.ListBox,
         row: Gtk.ListBoxRow | None,
     ) -> None:
-        self.delete_button.set_sensitive(row is not None)
+        has_selection = row is not None
+
+        self.delete_button.set_sensitive(has_selection)
+        self.move_up_button.set_sensitive(
+            has_selection and row.get_index() > 0
+        )
+
+    def _on_move_stop_up_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        selected_row = self.stop_list.get_selected_row()
+
+        if selected_row is None:
+            return
+
+        index = selected_row.get_index()
+
+        if index <= 0:
+            return
+
+        self.trip.stops[index - 1], self.trip.stops[index] = (
+            self.trip.stops[index],
+            self.trip.stops[index - 1],
+        )
+
+        self._mark_modified()
+        self._refresh_interface()
+
+        new_row = self.stop_list.get_row_at_index(index - 1)
+
+        if new_row is not None:
+            self.stop_list.select_row(new_row)
 
     def _on_delete_stop_clicked(
         self,
