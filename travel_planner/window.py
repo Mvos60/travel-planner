@@ -8,13 +8,14 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
 
-from gi.repository import Gtk, WebKit
+from gi.repository import Gio, GLib, Gtk, WebKit
 
 from travel_planner.trip import Stop, Trip
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TRIP_PATH = PROJECT_ROOT / "data" / "adriatic-2026.trip.json"
+DATA_DIR = PROJECT_ROOT / "data"
+TRIP_PATH = DATA_DIR / "adriatic-2026.trip.json"
 
 
 class AddStopDialog(Gtk.Dialog):
@@ -109,6 +110,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.stop_list = Gtk.ListBox()
         self.summary_label = Gtk.Label()
         self.header_title = Gtk.Label()
+        self.delete_button = Gtk.Button(label="Verwijderen")
 
         self._build_interface()
         self._load_map()
@@ -116,7 +118,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
     def _build_interface(self) -> None:
         header = Gtk.HeaderBar()
-
         header.set_title_widget(self.header_title)
 
         new_button = Gtk.Button(label="Nieuw")
@@ -132,6 +133,13 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self._on_add_stop_clicked,
         )
         header.pack_start(add_button)
+
+        save_as_button = Gtk.Button(label="Opslaan als…")
+        save_as_button.connect(
+            "clicked",
+            self._on_save_as_clicked,
+        )
+        header.pack_end(save_as_button)
 
         save_button = Gtk.Button(label="Opslaan")
         save_button.connect(
@@ -162,14 +170,40 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         content.set_wide_handle(True)
         content.set_vexpand(True)
 
+        sidebar = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+        )
+        sidebar.set_margin_bottom(8)
+        sidebar.set_margin_start(8)
+        sidebar.set_margin_end(8)
+
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(
             Gtk.PolicyType.NEVER,
             Gtk.PolicyType.AUTOMATIC,
         )
+        scroller.set_vexpand(True)
+
+        self.stop_list.set_selection_mode(
+            Gtk.SelectionMode.SINGLE
+        )
+        self.stop_list.connect(
+            "row-selected",
+            self._on_stop_selected,
+        )
         scroller.set_child(self.stop_list)
 
-        content.set_start_child(scroller)
+        self.delete_button.set_sensitive(False)
+        self.delete_button.connect(
+            "clicked",
+            self._on_delete_stop_clicked,
+        )
+
+        sidebar.append(scroller)
+        sidebar.append(self.delete_button)
+
+        content.set_start_child(sidebar)
         content.set_end_child(self.web_view)
 
         root.append(content)
@@ -255,6 +289,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             row.set_child(box)
             self.stop_list.append(row)
 
+        self.delete_button.set_sensitive(False)
         self._refresh_map()
 
     def _refresh_map(self) -> None:
@@ -325,24 +360,144 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         dialog.destroy()
         self._refresh_interface()
 
+    def _on_stop_selected(
+        self,
+        _list_box: Gtk.ListBox,
+        row: Gtk.ListBoxRow | None,
+    ) -> None:
+        self.delete_button.set_sensitive(row is not None)
+
+    def _on_delete_stop_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        selected_row = self.stop_list.get_selected_row()
+
+        if selected_row is None:
+            return
+
+        index = selected_row.get_index()
+        del self.trip.stops[index]
+
+        self._mark_modified()
+        self._refresh_interface()
+
     def _on_save_clicked(
         self,
         _button: Gtk.Button,
     ) -> None:
         if self.current_trip_path is None:
+            self._show_save_dialog()
+            return
+
+        self._save_trip_to(self.current_trip_path)
+
+    def _on_save_as_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        self._show_save_dialog()
+
+    def _show_save_dialog(self) -> None:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Reis opslaan als")
+        dialog.set_modal(True)
+        dialog.set_accept_label("Opslaan")
+        dialog.set_initial_folder(
+            Gio.File.new_for_path(str(DATA_DIR))
+        )
+
+        if self.current_trip_path is not None:
+            initial_name = self.current_trip_path.name
+        else:
+            initial_name = "nieuwe-reis.trip.json"
+
+        dialog.set_initial_name(initial_name)
+
+        trip_filter = Gtk.FileFilter()
+        trip_filter.set_name("Travel Planner-reizen")
+        trip_filter.add_pattern("*.trip.json")
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(trip_filter)
+
+        dialog.set_filters(filters)
+        dialog.set_default_filter(trip_filter)
+
+        dialog.save(
+            self,
+            None,
+            self._on_save_dialog_finished,
+            None,
+        )
+
+    def _on_save_dialog_finished(
+        self,
+        dialog: Gtk.FileDialog,
+        result: Gio.AsyncResult,
+        _user_data: object | None,
+    ) -> None:
+        try:
+            selected_file = dialog.save_finish(result)
+        except GLib.Error:
+            return
+
+        selected_path = selected_file.get_path()
+
+        if selected_path is None:
             self._show_message(
                 "Reis kon niet worden opgeslagen",
-                "Er is nog geen bestandsnaam gekozen.",
+                "De gekozen locatie is niet lokaal beschikbaar.",
             )
             return
 
-        self.trip.save(self.current_trip_path)
+        path = Path(selected_path)
+
+        if path.name.endswith(".trip.json"):
+            pass
+        elif path.suffix == ".json":
+            path = path.with_name(
+                f"{path.stem}.trip.json"
+            )
+        else:
+            path = path.with_name(
+                f"{path.name}.trip.json"
+            )
+
+        if self.trip.name == "Nieuwe reis":
+            filename_name = path.name.removesuffix(
+                ".trip.json"
+            )
+            readable_name = filename_name.replace(
+                "-",
+                " ",
+            ).replace(
+                "_",
+                " ",
+            )
+            self.trip.name = readable_name.capitalize()
+
+        self.current_trip_path = path
+        self._save_trip_to(path)
+
+    def _save_trip_to(self, path: Path) -> None:
+        try:
+            self.trip.save(path)
+        except OSError as exc:
+            self._show_message(
+                "Reis kon niet worden opgeslagen",
+                str(exc),
+            )
+            return
+
         self.modified = False
         self._update_window_title()
 
         self._show_message(
             "Reis opgeslagen",
-            str(self.current_trip_path),
+            str(path),
         )
 
     def _show_message(
