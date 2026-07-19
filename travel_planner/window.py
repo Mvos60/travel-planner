@@ -19,7 +19,11 @@ TRIP_PATH = DATA_DIR / "adriatic-2026.trip.json"
 
 
 class AddStopDialog(Gtk.Dialog):
-    def __init__(self, parent: Gtk.Window) -> None:
+    def __init__(
+        self,
+        parent: Gtk.Window,
+        stop: Stop | None = None,
+    ) -> None:
         super().__init__(
             title="Stop toevoegen",
             transient_for=parent,
@@ -30,16 +34,21 @@ class AddStopDialog(Gtk.Dialog):
         self.add_button("Toevoegen", Gtk.ResponseType.OK)
 
         self.name_entry = Gtk.Entry()
-        self.name_entry.set_text("Culemborg")
-
         self.latitude_entry = Gtk.Entry()
-        self.latitude_entry.set_text("51.955")
-
         self.longitude_entry = Gtk.Entry()
-        self.longitude_entry.set_text("5.22778")
-
         self.nights_spin = Gtk.SpinButton.new_with_range(0, 60, 1)
-        self.nights_spin.set_value(3)
+
+        if stop is None:
+            self.name_entry.set_text("Culemborg")
+            self.latitude_entry.set_text("51.955")
+            self.longitude_entry.set_text("5.22778")
+            self.nights_spin.set_value(3)
+        else:
+            self.set_title("Stop bewerken")
+            self.name_entry.set_text(stop.name)
+            self.latitude_entry.set_text(str(stop.latitude))
+            self.longitude_entry.set_text(str(stop.longitude))
+            self.nights_spin.set_value(stop.nights)
 
         grid = Gtk.Grid(
             column_spacing=12,
@@ -112,7 +121,10 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.header_title = Gtk.Label()
         self.move_up_button = Gtk.Button(label="Omhoog")
         self.move_down_button = Gtk.Button(label="Omlaag")
+        self.edit_button = Gtk.Button(label="Bewerken")
         self.delete_button = Gtk.Button(label="Verwijderen")
+
+        self.editing_stop_index: int | None = None
 
         self._build_interface()
         self._load_map()
@@ -194,12 +206,22 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             "row-selected",
             self._on_stop_selected,
         )
+
+        double_click = Gtk.GestureClick()
+        double_click.set_button(1)
+        double_click.connect(
+            "pressed",
+            self._on_stop_double_clicked,
+        )
+        self.stop_list.add_controller(double_click)
+
         scroller.set_child(self.stop_list)
 
-        button_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
+        button_grid = Gtk.Grid(
+            column_spacing=8,
+            row_spacing=8,
         )
+        button_grid.set_column_homogeneous(True)
 
         self.move_up_button.set_sensitive(False)
         self.move_up_button.connect(
@@ -213,18 +235,25 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self._on_move_stop_down_clicked,
         )
 
+        self.edit_button.set_sensitive(False)
+        self.edit_button.connect(
+            "clicked",
+            self._on_edit_stop_clicked,
+        )
+
         self.delete_button.set_sensitive(False)
         self.delete_button.connect(
             "clicked",
             self._on_delete_stop_clicked,
         )
 
-        button_row.append(self.move_up_button)
-        button_row.append(self.move_down_button)
-        button_row.append(self.delete_button)
+        button_grid.attach(self.move_up_button, 0, 0, 1, 1)
+        button_grid.attach(self.move_down_button, 1, 0, 1, 1)
+        button_grid.attach(self.edit_button, 0, 1, 1, 1)
+        button_grid.attach(self.delete_button, 1, 1, 1, 1)
 
         sidebar.append(scroller)
-        sidebar.append(button_row)
+        sidebar.append(button_grid)
 
         content.set_start_child(sidebar)
         content.set_end_child(self.web_view)
@@ -314,6 +343,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self.move_up_button.set_sensitive(False)
         self.move_down_button.set_sensitive(False)
+        self.edit_button.set_sensitive(False)
         self.delete_button.set_sensitive(False)
         self._refresh_map()
 
@@ -355,7 +385,55 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self,
         _button: Gtk.Button,
     ) -> None:
+        self.editing_stop_index = None
+
         dialog = AddStopDialog(self)
+        dialog.connect(
+            "response",
+            self._on_add_stop_response,
+        )
+        dialog.present()
+
+    def _on_edit_stop_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        selected_row = self.stop_list.get_selected_row()
+
+        if selected_row is None:
+            return
+
+        self._open_edit_dialog(selected_row.get_index())
+
+    def _on_stop_double_clicked(
+        self,
+        _gesture: Gtk.GestureClick,
+        press_count: int,
+        _x: float,
+        y: float,
+    ) -> None:
+        if press_count != 2:
+            return
+
+        row = self.stop_list.get_row_at_y(int(y))
+
+        if row is None:
+            return
+
+        self.stop_list.select_row(row)
+        self._open_edit_dialog(row.get_index())
+
+    def _open_edit_dialog(
+        self,
+        stop_index: int,
+    ) -> None:
+        if not 0 <= stop_index < len(self.trip.stops):
+            return
+
+        self.editing_stop_index = stop_index
+        stop = self.trip.stops[stop_index]
+
+        dialog = AddStopDialog(self, stop)
         dialog.connect(
             "response",
             self._on_add_stop_response,
@@ -380,10 +458,25 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             )
             return
 
-        self.trip.add_stop(stop)
+        selected_index = self.editing_stop_index
+
+        if selected_index is None:
+            self.trip.add_stop(stop)
+        else:
+            self.trip.stops[selected_index] = stop
+
+        self.editing_stop_index = None
         self._mark_modified()
         dialog.destroy()
         self._refresh_interface()
+
+        if selected_index is not None:
+            edited_row = self.stop_list.get_row_at_index(
+                selected_index
+            )
+
+            if edited_row is not None:
+                self.stop_list.select_row(edited_row)
 
     def _on_stop_selected(
         self,
@@ -392,6 +485,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
     ) -> None:
         has_selection = row is not None
 
+        self.edit_button.set_sensitive(has_selection)
         self.delete_button.set_sensitive(has_selection)
 
         if not has_selection:
