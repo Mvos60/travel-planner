@@ -111,6 +111,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.summary_label = Gtk.Label()
         self.header_title = Gtk.Label()
         self.move_up_button = Gtk.Button(label="Omhoog")
+        self.move_down_button = Gtk.Button(label="Omlaag")
         self.delete_button = Gtk.Button(label="Verwijderen")
 
         self._build_interface()
@@ -206,6 +207,12 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self._on_move_stop_up_clicked,
         )
 
+        self.move_down_button.set_sensitive(False)
+        self.move_down_button.connect(
+            "clicked",
+            self._on_move_stop_down_clicked,
+        )
+
         self.delete_button.set_sensitive(False)
         self.delete_button.connect(
             "clicked",
@@ -213,6 +220,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         )
 
         button_row.append(self.move_up_button)
+        button_row.append(self.move_down_button)
         button_row.append(self.delete_button)
 
         sidebar.append(scroller)
@@ -305,6 +313,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.stop_list.append(row)
 
         self.move_up_button.set_sensitive(False)
+        self.move_down_button.set_sensitive(False)
         self.delete_button.set_sensitive(False)
         self._refresh_map()
 
@@ -384,8 +393,17 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         has_selection = row is not None
 
         self.delete_button.set_sensitive(has_selection)
-        self.move_up_button.set_sensitive(
-            has_selection and row.get_index() > 0
+
+        if not has_selection:
+            self.move_up_button.set_sensitive(False)
+            self.move_down_button.set_sensitive(False)
+            return
+
+        index = row.get_index()
+
+        self.move_up_button.set_sensitive(index > 0)
+        self.move_down_button.set_sensitive(
+            index < len(self.trip.stops) - 1
         )
 
     def _on_move_stop_up_clicked(
@@ -411,6 +429,33 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self._refresh_interface()
 
         new_row = self.stop_list.get_row_at_index(index - 1)
+
+        if new_row is not None:
+            self.stop_list.select_row(new_row)
+
+    def _on_move_stop_down_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        selected_row = self.stop_list.get_selected_row()
+
+        if selected_row is None:
+            return
+
+        index = selected_row.get_index()
+
+        if index >= len(self.trip.stops) - 1:
+            return
+
+        self.trip.stops[index], self.trip.stops[index + 1] = (
+            self.trip.stops[index + 1],
+            self.trip.stops[index],
+        )
+
+        self._mark_modified()
+        self._refresh_interface()
+
+        new_row = self.stop_list.get_row_at_index(index + 1)
 
         if new_row is not None:
             self.stop_list.select_row(new_row)
