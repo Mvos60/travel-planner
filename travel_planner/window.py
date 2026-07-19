@@ -29,16 +29,16 @@ class AddStopDialog(Gtk.Dialog):
         self.add_button("Toevoegen", Gtk.ResponseType.OK)
 
         self.name_entry = Gtk.Entry()
-        self.name_entry.set_placeholder_text("Bijvoorbeeld: Bohinj")
+        self.name_entry.set_text("Culemborg")
 
         self.latitude_entry = Gtk.Entry()
-        self.latitude_entry.set_placeholder_text("Bijvoorbeeld: 46.2823")
+        self.latitude_entry.set_text("51.955")
 
         self.longitude_entry = Gtk.Entry()
-        self.longitude_entry.set_placeholder_text("Bijvoorbeeld: 13.8582")
+        self.longitude_entry.set_text("5.22778")
 
         self.nights_spin = Gtk.SpinButton.new_with_range(0, 60, 1)
-        self.nights_spin.set_value(1)
+        self.nights_spin.set_value(3)
 
         grid = Gtk.Grid(
             column_spacing=12,
@@ -97,27 +97,27 @@ class AddStopDialog(Gtk.Dialog):
 
 class TravelPlannerWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application) -> None:
-        super().__init__(
-            application=application,
-            title="Travel Planner",
-        )
+        super().__init__(application=application)
 
         self.set_default_size(1200, 760)
 
         self.trip = Trip(name="Adriatic 2026")
+        self.current_trip_path: Path | None = TRIP_PATH
+        self.modified = False
+
         self.web_view = WebKit.WebView()
         self.stop_list = Gtk.ListBox()
         self.summary_label = Gtk.Label()
+        self.header_title = Gtk.Label()
 
         self._build_interface()
         self._load_map()
+        self._update_window_title()
 
     def _build_interface(self) -> None:
         header = Gtk.HeaderBar()
 
-        title = Gtk.Label()
-        title.set_markup("<b>Adriatic 2026</b>")
-        header.set_title_widget(title)
+        header.set_title_widget(self.header_title)
 
         add_button = Gtk.Button(label="Stop toevoegen")
         add_button.connect(
@@ -186,6 +186,17 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
     ) -> None:
         if load_event == WebKit.LoadEvent.FINISHED:
             self._refresh_map()
+
+    def _mark_modified(self) -> None:
+        self.modified = True
+        self._update_window_title()
+
+    def _update_window_title(self) -> None:
+        marker = " [gewijzigd]" if self.modified else ""
+        title = f"{self.trip.name}{marker}"
+
+        self.set_title(f"{title} — Travel Planner")
+        self.header_title.set_markup(f"<b>{title}</b>")
 
     def _refresh_interface(self) -> None:
         self.summary_label.set_text(
@@ -292,6 +303,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             return
 
         self.trip.add_stop(stop)
+        self._mark_modified()
         dialog.destroy()
         self._refresh_interface()
 
@@ -299,11 +311,20 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self,
         _button: Gtk.Button,
     ) -> None:
-        self.trip.save(TRIP_PATH)
+        if self.current_trip_path is None:
+            self._show_message(
+                "Reis kon niet worden opgeslagen",
+                "Er is nog geen bestandsnaam gekozen.",
+            )
+            return
+
+        self.trip.save(self.current_trip_path)
+        self.modified = False
+        self._update_window_title()
 
         self._show_message(
             "Reis opgeslagen",
-            str(TRIP_PATH),
+            str(self.current_trip_path),
         )
 
     def _show_message(
