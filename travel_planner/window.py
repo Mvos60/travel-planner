@@ -119,6 +119,13 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         header.set_title_widget(self.header_title)
 
+        new_button = Gtk.Button(label="Nieuw")
+        new_button.connect(
+            "clicked",
+            self._on_new_clicked,
+        )
+        header.pack_start(new_button)
+
         add_button = Gtk.Button(label="Stop toevoegen")
         add_button.connect(
             "clicked",
@@ -272,6 +279,17 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             None,
             None,
         )
+
+    def _on_new_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        self.trip = Trip(name="Nieuwe reis")
+        self.current_trip_path = None
+        self.modified = False
+
+        self._update_window_title()
+        self._refresh_interface()
 
     def _on_add_stop_clicked(
         self,
