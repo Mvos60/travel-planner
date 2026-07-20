@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import gi
 
@@ -23,6 +27,9 @@ class AddStopDialog(Gtk.Dialog):
         self,
         parent: Gtk.Window,
         stop: Stop | None = None,
+        initial_name: str | None = None,
+        initial_latitude: float | None = None,
+        initial_longitude: float | None = None,
     ) -> None:
         super().__init__(
             title="Stop toevoegen",
@@ -34,15 +41,29 @@ class AddStopDialog(Gtk.Dialog):
         self.add_button("Toevoegen", Gtk.ResponseType.OK)
 
         self.name_entry = Gtk.Entry()
+        self.name_entry.set_width_chars(32)
         self.latitude_entry = Gtk.Entry()
         self.longitude_entry = Gtk.Entry()
         self.nights_spin = Gtk.SpinButton.new_with_range(0, 60, 1)
 
         if stop is None:
-            self.name_entry.set_text("Culemborg")
-            self.latitude_entry.set_text("51.955")
-            self.longitude_entry.set_text("5.22778")
-            self.nights_spin.set_value(3)
+            if (
+                initial_latitude is not None
+                and initial_longitude is not None
+            ):
+                self.name_entry.set_text(initial_name or "")
+                self.latitude_entry.set_text(
+                    f"{initial_latitude:.6f}"
+                )
+                self.longitude_entry.set_text(
+                    f"{initial_longitude:.6f}"
+                )
+            else:
+                self.name_entry.set_text("")
+                self.latitude_entry.set_text("")
+                self.longitude_entry.set_text("")
+
+            self.nights_spin.set_value(1)
         else:
             self.set_title("Stop bewerken")
             self.name_entry.set_text(stop.name)
@@ -59,7 +80,7 @@ class AddStopDialog(Gtk.Dialog):
         grid.set_margin_start(18)
         grid.set_margin_end(18)
 
-        grid.attach(Gtk.Label(label="Naam"), 0, 0, 1, 1)
+        grid.attach(Gtk.Label(label="Plaats"), 0, 0, 1, 1)
         grid.attach(self.name_entry, 1, 0, 1, 1)
 
         grid.attach(Gtk.Label(label="Breedtegraad"), 0, 1, 1, 1)
@@ -77,7 +98,7 @@ class AddStopDialog(Gtk.Dialog):
         name = self.name_entry.get_text().strip()
 
         if not name:
-            raise ValueError("De stopnaam ontbreekt.")
+            raise ValueError("De plaatsnaam ontbreekt.")
 
         try:
             latitude = float(self.latitude_entry.get_text().strip())
@@ -115,7 +136,28 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.current_trip_path: Path | None = TRIP_PATH
         self.modified = False
 
-        self.web_view = WebKit.WebView()
+        self.web_content_manager = WebKit.UserContentManager()
+        self.web_content_manager.connect(
+            "script-message-received::mapClick",
+            self._on_map_click_message,
+        )
+        self.web_content_manager.register_script_message_handler(
+            "mapClick",
+            None,
+        )
+
+        self.web_content_manager.connect(
+            "script-message-received::markerClick",
+            self._on_map_marker_click_message,
+        )
+        self.web_content_manager.register_script_message_handler(
+            "markerClick",
+            None,
+        )
+
+        self.web_view = WebKit.WebView(
+            user_content_manager=self.web_content_manager
+        )
         self.stop_list = Gtk.ListBox()
         self.summary_label = Gtk.Label()
         self.header_title = Gtk.Label()
@@ -125,10 +167,18 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.delete_button = Gtk.Button(label="Verwijderen")
 
         self.editing_stop_index: int | None = None
+        self.map_click_name: str | None = None
+        self.map_click_latitude: float | None = None
+        self.map_click_longitude: float | None = None
 
         self._build_interface()
         self._load_map()
         self._update_window_title()
+
+        self.autosave_timer_id = GLib.timeout_add_seconds(
+            30,
+            self._on_autosave_timer,
+        )
 
     def _build_interface(self) -> None:
         header = Gtk.HeaderBar()
@@ -141,12 +191,26 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         )
         header.pack_start(new_button)
 
+        open_button = Gtk.Button(label="Openen")
+        open_button.connect(
+            "clicked",
+            self._on_open_clicked,
+        )
+        header.pack_start(open_button)
+
         add_button = Gtk.Button(label="Stop toevoegen")
         add_button.connect(
             "clicked",
             self._on_add_stop_clicked,
         )
         header.pack_start(add_button)
+
+        show_trip_button = Gtk.Button(label="Hele reis")
+        show_trip_button.connect(
+            "clicked",
+            self._on_show_entire_trip_clicked,
+        )
+        header.pack_start(show_trip_button)
 
         save_as_button = Gtk.Button(label="Opslaan als…")
         save_as_button.connect(
@@ -280,9 +344,194 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         if load_event == WebKit.LoadEvent.FINISHED:
             self._refresh_map()
 
+    def _on_map_click_message(
+        self,
+        _manager: WebKit.UserContentManager,
+        value: object,
+    ) -> None:
+        try:
+            message = json.loads(value.to_string())
+
+            if isinstance(message, str):
+                message = json.loads(message)
+
+            latitude = float(message["latitude"])
+            longitude = float(message["longitude"])
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
+            KeyError,
+            json.JSONDecodeError,
+        ):
+            return
+
+        self.map_click_name = None
+        self.map_click_latitude = latitude
+        self.map_click_longitude = longitude
+
+        thread = threading.Thread(
+            target=self._reverse_geocode,
+            args=(latitude, longitude),
+            daemon=True,
+        )
+        thread.start()
+
+    def _on_map_marker_click_message(
+        self,
+        _manager: WebKit.UserContentManager,
+        value: object,
+    ) -> None:
+        try:
+            marker_index = int(value.to_string())
+        except (AttributeError, TypeError, ValueError):
+            return
+
+        row = self.stop_list.get_row_at_index(marker_index)
+
+        if row is not None:
+            self.stop_list.select_row(row)
+
+    def _on_show_entire_trip_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        self.web_view.evaluate_javascript(
+            "window.showEntireTrip();",
+            -1,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+    def _focus_map_stop(self, stop_index: int) -> None:
+        script = f"window.focusStop({stop_index});"
+
+        self.web_view.evaluate_javascript(
+            script,
+            -1,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+    def _reverse_geocode(
+        self,
+        latitude: float,
+        longitude: float,
+    ) -> None:
+        parameters = urlencode(
+            {
+                "lat": f"{latitude:.6f}",
+                "lon": f"{longitude:.6f}",
+                "format": "jsonv2",
+                "addressdetails": "1",
+                "accept-language": "nl",
+                "zoom": "14",
+            }
+        )
+
+        request = Request(
+            "https://nominatim.openstreetmap.org/reverse?"
+            + parameters,
+            headers={
+                "User-Agent": (
+                    "MacTravelPlanner/0.1 "
+                    "(personal GTK desktop application)"
+                ),
+                "Accept": "application/json",
+            },
+        )
+
+        try:
+            with urlopen(request, timeout=10) as response:
+                result = json.load(response)
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            OSError,
+            json.JSONDecodeError,
+        ):
+            return
+
+        address = result.get("address", {})
+
+        name = next(
+            (
+                address.get(key)
+                for key in (
+                    "city",
+                    "town",
+                    "village",
+                    "municipality",
+                    "hamlet",
+                    "locality",
+                    "county",
+                )
+                if address.get(key)
+            ),
+            None,
+        )
+
+        if name is None:
+            display_name = result.get("display_name", "")
+            name = display_name.split(",", 1)[0].strip() or None
+
+        if name is None:
+            return
+
+        GLib.idle_add(
+            self._store_reverse_geocode_result,
+            latitude,
+            longitude,
+            name,
+        )
+
+    def _store_reverse_geocode_result(
+        self,
+        latitude: float,
+        longitude: float,
+        name: str,
+    ) -> bool:
+        if (
+            self.map_click_latitude != latitude
+            or self.map_click_longitude != longitude
+        ):
+            return False
+
+        self.map_click_name = name
+        return False
+
     def _mark_modified(self) -> None:
         self.modified = True
         self._update_window_title()
+
+    def _get_autosave_path(self) -> Path:
+        if self.current_trip_path is not None:
+            return Path(
+                f"{self.current_trip_path}.autosave"
+            )
+
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        return DATA_DIR / "unsaved-trip.autosave"
+
+    def _on_autosave_timer(self) -> bool:
+        if not self.modified:
+            return True
+
+        autosave_path = self._get_autosave_path()
+
+        try:
+            self.trip.save(autosave_path)
+        except OSError:
+            return True
+
+        return True
 
     def _update_window_title(self) -> None:
         marker = " [gewijzigd]" if self.modified else ""
@@ -378,6 +627,10 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.current_trip_path = None
         self.modified = False
 
+        self.map_click_name = None
+        self.map_click_latitude = None
+        self.map_click_longitude = None
+
         self._update_window_title()
         self._refresh_interface()
 
@@ -387,7 +640,12 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
     ) -> None:
         self.editing_stop_index = None
 
-        dialog = AddStopDialog(self)
+        dialog = AddStopDialog(
+            self,
+            initial_name=self.map_click_name,
+            initial_latitude=self.map_click_latitude,
+            initial_longitude=self.map_click_longitude,
+        )
         dialog.connect(
             "response",
             self._on_add_stop_response,
@@ -494,6 +752,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             return
 
         index = row.get_index()
+        self._focus_map_stop(index)
 
         self.move_up_button.set_sensitive(index > 0)
         self.move_down_button.set_sensitive(
@@ -567,6 +826,87 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         del self.trip.stops[index]
 
         self._mark_modified()
+        self._refresh_interface()
+
+    def _on_open_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Reis openen")
+        dialog.set_modal(True)
+        dialog.set_accept_label("Openen")
+        dialog.set_initial_folder(
+            Gio.File.new_for_path(str(DATA_DIR))
+        )
+
+        trip_filter = Gtk.FileFilter()
+        trip_filter.set_name("Travel Planner-reizen")
+        trip_filter.add_pattern("*.trip.json")
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(trip_filter)
+
+        dialog.set_filters(filters)
+        dialog.set_default_filter(trip_filter)
+
+        dialog.open(
+            self,
+            None,
+            self._on_open_dialog_finished,
+            None,
+        )
+
+    def _on_open_dialog_finished(
+        self,
+        dialog: Gtk.FileDialog,
+        result: Gio.AsyncResult,
+        _user_data: object | None,
+    ) -> None:
+        try:
+            selected_file = dialog.open_finish(result)
+        except GLib.Error:
+            return
+
+        selected_path = selected_file.get_path()
+
+        if selected_path is None:
+            self._show_message(
+                "Reis kon niet worden geopend",
+                "De gekozen locatie is niet lokaal beschikbaar.",
+            )
+            return
+
+        self._load_trip(Path(selected_path))
+
+    def _load_trip(self, path: Path) -> None:
+        try:
+            trip = Trip.load(path)
+        except (
+            OSError,
+            json.JSONDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            self._show_message(
+                "Reis kon niet worden geopend",
+                str(exc),
+            )
+            return
+
+        self.trip = trip
+        self.current_trip_path = path
+        self.modified = False
+
+        self.editing_stop_index = None
+        self.map_click_name = None
+        self.map_click_latitude = None
+        self.map_click_longitude = None
+
+        self._update_window_title()
         self._refresh_interface()
 
     def _on_save_clicked(
@@ -653,18 +993,22 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 f"{path.name}.trip.json"
             )
 
-        if self.trip.name == "Nieuwe reis":
-            filename_name = path.name.removesuffix(
-                ".trip.json"
+        filename_name = path.name.removesuffix(
+            ".trip.json"
+        )
+        readable_name = filename_name.replace(
+            "-",
+            " ",
+        ).replace(
+            "_",
+            " ",
+        ).strip()
+
+        if readable_name:
+            self.trip.name = (
+                readable_name[:1].upper()
+                + readable_name[1:]
             )
-            readable_name = filename_name.replace(
-                "-",
-                " ",
-            ).replace(
-                "_",
-                " ",
-            )
-            self.trip.name = readable_name.capitalize()
 
         self.current_trip_path = path
         self._save_trip_to(path)
@@ -678,6 +1022,17 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 str(exc),
             )
             return
+
+        for autosave in (
+            DATA_DIR / "unsaved-trip.autosave",
+            Path(f"{path}.autosave"),
+        ):
+            try:
+                autosave.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
 
         self.modified = False
         self._update_window_title()
