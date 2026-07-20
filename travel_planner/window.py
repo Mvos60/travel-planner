@@ -131,10 +131,15 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         super().__init__(application=application)
 
         self.set_default_size(1200, 760)
+        self.connect(
+            "close-request",
+            self._on_close_request,
+        )
 
         self.trip = Trip(name="Adriatic 2026")
         self.current_trip_path: Path | None = TRIP_PATH
         self.modified = False
+        self.pending_action: str | None = None
 
         self.web_content_manager = WebKit.UserContentManager()
         self.web_content_manager.connect(
@@ -619,14 +624,112 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             None,
         )
 
+    def _on_close_request(
+        self,
+        _window: Gtk.Window,
+    ) -> bool:
+        if not self.modified:
+            return False
+
+        self._request_destructive_action("close")
+        return True
+
     def _on_new_clicked(
         self,
         _button: Gtk.Button,
     ) -> None:
+        self._request_destructive_action("new")
+
+    def _request_destructive_action(
+        self,
+        action: str,
+    ) -> None:
+        if not self.modified:
+            self._execute_pending_action(action)
+            return
+
+        dialog = Gtk.AlertDialog()
+        dialog.set_message(
+            "Niet-opgeslagen wijzigingen"
+        )
+        dialog.set_detail(
+            "De huidige reis bevat wijzigingen die nog "
+            "niet zijn opgeslagen."
+        )
+        dialog.set_buttons(
+            [
+                "Annuleren",
+                "Niet opslaan",
+                "Opslaan",
+            ]
+        )
+        dialog.set_cancel_button(0)
+        dialog.set_default_button(2)
+
+        dialog.choose(
+            self,
+            None,
+            self._on_unsaved_changes_finished,
+            action,
+        )
+
+    def _on_unsaved_changes_finished(
+        self,
+        dialog: Gtk.AlertDialog,
+        result: Gio.AsyncResult,
+        action: object,
+    ) -> None:
+        try:
+            choice = dialog.choose_finish(result)
+        except GLib.Error:
+            return
+
+        if not isinstance(action, str):
+            return
+
+        if choice == 0:
+            return
+
+        if choice == 1:
+            self._execute_pending_action(action)
+            return
+
+        if choice != 2:
+            return
+
+        self.pending_action = action
+
+        if self.current_trip_path is None:
+            self._show_save_dialog()
+            return
+
+        if self._save_trip_to(self.current_trip_path):
+            self._finish_pending_action()
+
+    def _finish_pending_action(self) -> None:
+        action = self.pending_action
+        self.pending_action = None
+
+        if action is not None:
+            self._execute_pending_action(action)
+
+    def _execute_pending_action(
+        self,
+        action: str,
+    ) -> None:
+        if action == "new":
+            self._create_new_trip()
+        elif action == "open":
+            self._show_open_dialog()
+        elif action == "close":
+            self.destroy()
+
+    def _create_new_trip(self) -> None:
         self.trip = Trip(name="Nieuwe reis")
         self.current_trip_path = None
         self.modified = False
 
+        self.editing_stop_index = None
         self.map_click_name = None
         self.map_click_latitude = None
         self.map_click_longitude = None
@@ -832,6 +935,9 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self,
         _button: Gtk.Button,
     ) -> None:
+        self._request_destructive_action("open")
+
+    def _show_open_dialog(self) -> None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         dialog = Gtk.FileDialog()
@@ -923,6 +1029,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self,
         _button: Gtk.Button,
     ) -> None:
+        self.pending_action = None
         self._show_save_dialog()
 
     def _show_save_dialog(self) -> None:
@@ -969,6 +1076,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         try:
             selected_file = dialog.save_finish(result)
         except GLib.Error:
+            self.pending_action = None
             return
 
         selected_path = selected_file.get_path()
@@ -978,6 +1086,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 "Reis kon niet worden opgeslagen",
                 "De gekozen locatie is niet lokaal beschikbaar.",
             )
+            self.pending_action = None
             return
 
         path = Path(selected_path)
@@ -1011,9 +1120,13 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             )
 
         self.current_trip_path = path
-        self._save_trip_to(path)
 
-    def _save_trip_to(self, path: Path) -> None:
+        if self._save_trip_to(path):
+            self._finish_pending_action()
+        else:
+            self.pending_action = None
+
+    def _save_trip_to(self, path: Path) -> bool:
         try:
             self.trip.save(path)
         except OSError as exc:
@@ -1021,7 +1134,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 "Reis kon niet worden opgeslagen",
                 str(exc),
             )
-            return
+            return False
 
         for autosave in (
             DATA_DIR / "unsaved-trip.autosave",
@@ -1037,10 +1150,13 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.modified = False
         self._update_window_title()
 
-        self._show_message(
-            "Reis opgeslagen",
-            str(path),
-        )
+        if self.pending_action is None:
+            self._show_message(
+                "Reis opgeslagen",
+                str(path),
+            )
+
+        return True
 
     def _show_message(
         self,
