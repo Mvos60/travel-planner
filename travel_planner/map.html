@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="nl">
 <head>
     <meta charset="utf-8">
     <meta
@@ -28,7 +28,37 @@
             box-sizing: border-box;
             padding: 30px;
             font-family: sans-serif;
-            color: #333333;
+        }
+
+        .stop-marker {
+            width: 30px;
+            height: 30px;
+            border: 2px solid white;
+            border-radius: 50%;
+            background: #ff7f00;
+            color: white;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.38);
+            font-family: sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            line-height: 30px;
+            text-align: center;
+        }
+
+        .stop-marker.start {
+            background: #2e9b45;
+        }
+
+        .stop-marker.end {
+            background: #d64545;
+        }
+
+        .stop-marker.selected {
+            width: 36px;
+            height: 36px;
+            background: #2679d8;
+            line-height: 36px;
+            transform: translate(-3px, -3px);
         }
     </style>
 </head>
@@ -47,64 +77,190 @@ if (typeof L === "undefined") {
         </div>
     `;
 } else {
-    const map = L.map("map").setView(
-        [46.5, 13.5],
-        5
-    );
+    const map = L.map("map").setView([46.5, 13.5], 5);
 
     L.tileLayer(
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
             maxZoom: 19,
-            attribution:
-                '&copy; <a href="https://www.openstreetmap.org/copyright">' +
-                'OpenStreetMap contributors</a>'
+            attribution: "&copy; OpenStreetMap contributors"
         }
     ).addTo(map);
 
     let markers = [];
     let route = null;
+    let selectedLocationMarker = null;
+    let selectedStopIndex = null;
+
+    function createStopIcon(index, selected, stopCount) {
+        let roleClass = "";
+
+        if (index === 0) {
+            roleClass = " start";
+        } else if (index === stopCount - 1) {
+            roleClass = " end";
+        }
+
+        const selectedClass = selected ? " selected" : "";
+
+        return L.divIcon({
+            className: "",
+            html:
+                `<div class="stop-marker${roleClass}${selectedClass}">` +
+                `${index + 1}</div>`,
+            iconSize: selected ? [36, 36] : [30, 30],
+            iconAnchor: selected ? [18, 18] : [15, 15],
+            popupAnchor: [0, -18]
+        });
+    }
+
+    function selectStop(index, centreMap) {
+        if (index < 0 || index >= markers.length) {
+            return;
+        }
+
+        selectedStopIndex = index;
+
+        markers.forEach(function(marker, markerIndex) {
+            marker.setIcon(
+                createStopIcon(
+                    markerIndex,
+                    markerIndex === selectedStopIndex,
+                    markers.length
+                )
+            );
+        });
+
+        const marker = markers[index];
+
+        if (centreMap) {
+            map.panTo(marker.getLatLng());
+        }
+
+        marker.openPopup();
+    }
+
+    map.on("click", function(event) {
+        const latitude = event.latlng.lat;
+        const longitude = event.latlng.lng;
+
+        if (selectedLocationMarker) {
+            selectedLocationMarker.setLatLng(event.latlng);
+        } else {
+            selectedLocationMarker = L.circleMarker(
+                event.latlng,
+                {
+                    radius: 8,
+                    weight: 3,
+                    fillOpacity: 0.45
+                }
+            ).addTo(map);
+        }
+
+        selectedLocationMarker.bindPopup(
+            `<strong>Gekozen locatie</strong><br>` +
+            `Lat: ${latitude.toFixed(6)}<br>` +
+            `Lon: ${longitude.toFixed(6)}`
+        ).openPopup();
+
+        window.webkit.messageHandlers.mapClick.postMessage(
+            JSON.stringify({
+                latitude: latitude,
+                longitude: longitude
+            })
+        );
+    });
+
+    window.focusStop = function(index) {
+        selectStop(index, true);
+    };
+
+    window.showEntireTrip = function() {
+        if (markers.length === 0) {
+            return;
+        }
+
+        if (markers.length === 1) {
+            map.setView(markers[0].getLatLng(), 9);
+            return;
+        }
+
+        const bounds = L.latLngBounds(
+            markers.map(function(marker) {
+                return marker.getLatLng();
+            })
+        );
+
+        map.fitBounds(
+            bounds,
+            {
+                padding: [40, 40]
+            }
+        );
+    };
 
     window.setStops = function(stops) {
+        if (selectedLocationMarker) {
+            selectedLocationMarker.remove();
+            selectedLocationMarker = null;
+        }
+
         for (const marker of markers) {
             marker.remove();
         }
 
         markers = [];
+        selectedStopIndex = null;
 
         if (route) {
             route.remove();
             route = null;
         }
 
-        const routeCoordinates = [];
+        const coordinates = [];
 
-        for (const stop of stops) {
+        stops.forEach(function(stop, index) {
             const coordinate = [
                 stop.latitude,
                 stop.longitude
             ];
 
-            routeCoordinates.push(coordinate);
+            coordinates.push(coordinate);
 
-            const marker = L.marker(coordinate).addTo(map);
+            const marker = L.marker(
+                coordinate,
+                {
+                    icon: createStopIcon(
+                        index,
+                        false,
+                        stops.length
+                    )
+                }
+            ).addTo(map);
 
             marker.bindPopup(
-                `<strong>${stop.name}</strong><br>` +
+                `<strong>${index + 1}. ${stop.name}</strong><br>` +
                 `${stop.nights} nacht(en)`
             );
 
+            marker.on("click", function() {
+                selectStop(index, false);
+
+                window.webkit.messageHandlers.markerClick.postMessage(
+                    String(index)
+                );
+            });
+
             markers.push(marker);
+        });
+
+        if (coordinates.length === 1) {
+            map.setView(coordinates[0], 9);
         }
 
-        if (routeCoordinates.length === 1) {
-            map.setView(routeCoordinates[0], 9);
-            markers[0].openPopup();
-        }
-
-        if (routeCoordinates.length > 1) {
+        if (coordinates.length > 1) {
             route = L.polyline(
-                routeCoordinates,
+                coordinates,
                 {
                     weight: 4,
                     opacity: 0.8
