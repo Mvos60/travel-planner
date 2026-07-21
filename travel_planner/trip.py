@@ -23,6 +23,7 @@ class Trip:
     stops: list[Stop] = field(default_factory=list)
     routing_profile: RoutingProfile = RoutingProfile.CAMPER
     travel_preferences: TravelPreferences = field(default_factory=TravelPreferences)
+    vehicle_profile_id: str | None = None
     avoid_motorways: bool = False
 
     def add_stop(self, stop: Stop) -> None:
@@ -34,6 +35,7 @@ class Trip:
             "stops": [asdict(stop) for stop in self.stops],
             "routing_profile": self.routing_profile.value,
             "travel_preferences": self.travel_preferences.to_dict(),
+            "vehicle_profile_id": self.vehicle_profile_id,
             "avoid_motorways": self.avoid_motorways,
         }
 
@@ -55,6 +57,7 @@ class Trip:
             travel_preferences=TravelPreferences.from_dict(
                 data.get("travel_preferences")
             ),
+            vehicle_profile_id=data.get("vehicle_profile_id"),
             avoid_motorways=bool(
                 data.get("avoid_motorways", False)
             ),
