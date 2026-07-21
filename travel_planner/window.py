@@ -17,6 +17,7 @@ from gi.repository import Gio, GLib, Gtk, WebKit
 from travel_planner.context import TravelPlannerContext
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.trip import Stop, Trip
+from travel_planner.vehicle_manager_dialog import VehicleManagerDialog
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -147,7 +148,8 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         )
 
         self.route_service = self.context.route_service
-        self.current_trip_path: Path | None = TRIP_PATH
+        self.osrm_route_provider = self.route_service.provider
+        self.current_trip_path: Path | None = None
         self.modified = False
         self.pending_action: str | None = None
 
@@ -183,6 +185,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.move_down_button = Gtk.Button(label="Omlaag")
         self.edit_button = Gtk.Button(label="Bewerken")
         self.delete_button = Gtk.Button(label="Verwijderen")
+        self.vehicle_profile_combo = Gtk.ComboBoxText()
         self.route_profile_combo = Gtk.ComboBoxText()
 
         self.preferences_box = Gtk.Box(
@@ -201,6 +204,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 profile.display_name,
             )
 
+        self.syncing_vehicle_profile = False
         self.syncing_route_profile = False
         self.syncing_preferences = False
 
@@ -214,6 +218,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.map_click_longitude: float | None = None
 
         self._build_interface()
+        self._refresh_vehicle_profile_selector()
         self._load_map()
         self._update_window_title()
 
@@ -238,9 +243,56 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self.context.replace_trip(trip)
 
+        if hasattr(self, "vehicle_profile_combo"):
+            self._refresh_vehicle_profile_selector()
+
     def _build_interface(self) -> None:
         header = Gtk.HeaderBar()
         header.set_title_widget(self.header_title)
+
+        menu_button = Gtk.MenuButton()
+        menu_button.set_icon_name("open-menu-symbolic")
+        menu_button.set_tooltip_text("Menu")
+
+        menu_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=0,
+        )
+        menu_box.set_margin_top(6)
+        menu_box.set_margin_bottom(6)
+        menu_box.set_margin_start(6)
+        menu_box.set_margin_end(6)
+
+        vehicles_button = Gtk.Button(
+            label="Voertuigen..."
+        )
+        vehicles_button.add_css_class("flat")
+        vehicles_button.connect(
+            "clicked",
+            self._on_vehicle_manager_clicked,
+        )
+        menu_box.append(vehicles_button)
+
+        separator = Gtk.Separator(
+            orientation=Gtk.Orientation.HORIZONTAL,
+        )
+        separator.set_margin_top(4)
+        separator.set_margin_bottom(4)
+        menu_box.append(separator)
+
+        quit_button = Gtk.Button(label="Afsluiten")
+        quit_button.add_css_class("flat")
+        quit_button.connect(
+            "clicked",
+            self._on_quit_clicked,
+        )
+        menu_box.append(quit_button)
+
+        menu_popover = Gtk.Popover()
+        menu_popover.set_child(menu_box)
+        menu_button.set_popover(menu_popover)
+
+        header.pack_end(menu_button)
 
         new_button = Gtk.Button(label="Nieuw")
         new_button.connect(
@@ -313,6 +365,23 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         sidebar.set_margin_bottom(8)
         sidebar.set_margin_start(8)
         sidebar.set_margin_end(8)
+
+        vehicle_label = Gtk.Label(
+            label="Voertuig"
+        )
+        vehicle_label.set_xalign(0)
+        vehicle_label.add_css_class("heading")
+        vehicle_label.set_margin_top(4)
+
+        self.vehicle_profile_combo.set_hexpand(True)
+        self.vehicle_profile_combo.set_margin_bottom(8)
+        self.vehicle_profile_combo.connect(
+            "changed",
+            self._on_vehicle_profile_changed,
+        )
+
+        sidebar.append(vehicle_label)
+        sidebar.append(self.vehicle_profile_combo)
 
         profile_label = Gtk.Label(
             label="Routeprofiel"
@@ -878,6 +947,82 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.set_title(f"{title} — Travel Planner")
         self.header_title.set_markup(f"<b>{title}</b>")
 
+    def _refresh_vehicle_profile_selector(self) -> None:
+        """Show available vehicles and select the trip's reference."""
+
+        self.syncing_vehicle_profile = True
+
+        try:
+            self.vehicle_profile_combo.remove_all()
+            self.vehicle_profile_combo.append(
+                "__none__",
+                "Geen voertuig",
+            )
+
+            profiles = self.context.vehicle_profiles
+
+            for profile in profiles:
+                self.vehicle_profile_combo.append(
+                    profile.profile_id,
+                    profile.name,
+                )
+
+            selected_id = self.trip.vehicle_profile_id
+
+            if selected_id is None:
+                self.vehicle_profile_combo.set_active_id(
+                    "__none__"
+                )
+                return
+
+            profile = (
+                self.context.vehicle_profile_repository.get(
+                    selected_id
+                )
+            )
+
+            if profile is not None:
+                self.vehicle_profile_combo.set_active_id(
+                    selected_id
+                )
+                return
+
+            self.vehicle_profile_combo.append(
+                selected_id,
+                f"Onbekend voertuig ({selected_id})",
+            )
+            self.vehicle_profile_combo.set_active_id(
+                selected_id
+            )
+        finally:
+            self.syncing_vehicle_profile = False
+
+    def _on_vehicle_profile_changed(
+        self,
+        combo: Gtk.ComboBoxText,
+    ) -> None:
+        """Store the selected vehicle reference in the current trip."""
+
+        if self.syncing_vehicle_profile:
+            return
+
+        active_id = combo.get_active_id()
+
+        if active_id is None:
+            return
+
+        vehicle_profile_id = (
+            None
+            if active_id == "__none__"
+            else active_id
+        )
+
+        if self.trip.vehicle_profile_id == vehicle_profile_id:
+            return
+
+        self.trip.vehicle_profile_id = vehicle_profile_id
+        self._mark_modified()
+
     def _clear_preferences_panel(self) -> None:
         child = self.preferences_box.get_first_child()
 
@@ -1108,6 +1253,28 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             None,
             None,
         )
+
+    def _on_vehicle_manager_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        """Open the reusable vehicle profile manager."""
+
+        dialog = VehicleManagerDialog(
+            parent=self,
+            repository=(
+                self.context.vehicle_profile_repository
+            ),
+        )
+        dialog.present()
+
+    def _on_quit_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        """Close the application through the normal safety checks."""
+
+        self._request_destructive_action("close")
 
     def _on_close_request(
         self,
