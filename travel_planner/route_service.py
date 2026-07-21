@@ -8,6 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from travel_planner.routing_profile import RoutingProfile
 from travel_planner.trip import Stop
 
 
@@ -63,10 +64,12 @@ class OSRMRouteProvider:
         base_url: str = DEFAULT_OSRM_BASE_URL,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         opener: Callable[..., object] = urlopen,
+        avoid_motorways: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.opener = opener
+        self.avoid_motorways = avoid_motorways
 
     def calculate_route(
         self,
@@ -116,13 +119,17 @@ class OSRMRouteProvider:
             for stop in stops
         )
 
-        query = urlencode(
-            {
-                "overview": "full",
-                "geometries": "geojson",
-                "steps": "false",
-            }
-        )
+        query_parameters = {
+            "overview": "full",
+            "geometries": "geojson",
+            "steps": "false",
+        }
+
+        # The public OSRM demo server does not support
+        # exclude=motorway. Route preferences will be handled
+        # by a provider that supports dynamic costing.
+
+        query = urlencode(query_parameters)
 
         return (
             f"{self.base_url}/route/v1/driving/"
@@ -233,7 +240,12 @@ class RouteService:
     def calculate_route(
         self,
         stops: Sequence[Stop],
+        profile: RoutingProfile = RoutingProfile.CAMPER,
     ) -> list[RouteCoordinate]:
+        # Sprint 009.0 establishes the routing-profile contract.
+        # Providers will interpret the profile in later sprints.
+        _ = profile
+
         try:
             return self.provider.calculate_route(stops)
         except RouteProviderError:

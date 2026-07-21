@@ -18,6 +18,7 @@ from travel_planner.route_service import (
     OSRMRouteProvider,
     RouteService,
 )
+from travel_planner.routing_profile import RoutingProfile
 from travel_planner.trip import Stop, Trip
 
 
@@ -142,8 +143,9 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         )
 
         self.trip = Trip(name="Adriatic 2026")
+        self.osrm_route_provider = OSRMRouteProvider()
         self.route_service = RouteService(
-            provider=OSRMRouteProvider(),
+            provider=self.osrm_route_provider,
         )
         self.current_trip_path: Path | None = TRIP_PATH
         self.modified = False
@@ -181,6 +183,19 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.move_down_button = Gtk.Button(label="Omlaag")
         self.edit_button = Gtk.Button(label="Bewerken")
         self.delete_button = Gtk.Button(label="Verwijderen")
+        self.route_profile_combo = Gtk.ComboBoxText()
+
+        for profile in RoutingProfile:
+            self.route_profile_combo.append(
+                profile.value,
+                profile.display_name,
+            )
+
+        self.syncing_route_profile = False
+
+        self.avoid_motorways_check = Gtk.CheckButton(
+            label="Snelwegen vermijden"
+        )
 
         self.editing_stop_index: int | None = None
         self.map_click_name: str | None = None
@@ -275,6 +290,31 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         sidebar.set_margin_bottom(8)
         sidebar.set_margin_start(8)
         sidebar.set_margin_end(8)
+
+        profile_label = Gtk.Label(
+            label="Routeprofiel"
+        )
+        profile_label.set_xalign(0)
+        profile_label.add_css_class("heading")
+        profile_label.set_margin_top(4)
+
+        self.route_profile_combo.set_hexpand(True)
+        self.route_profile_combo.set_margin_bottom(4)
+        self.route_profile_combo.connect(
+            "changed",
+            self._on_route_profile_changed,
+        )
+
+        sidebar.append(profile_label)
+        sidebar.append(self.route_profile_combo)
+
+        self.avoid_motorways_check.set_margin_top(4)
+        self.avoid_motorways_check.set_margin_bottom(4)
+        self.avoid_motorways_check.connect(
+            "toggled",
+            self._on_avoid_motorways_toggled,
+        )
+        sidebar.append(self.avoid_motorways_check)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(
@@ -802,7 +842,65 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.set_title(f"{title} — Travel Planner")
         self.header_title.set_markup(f"<b>{title}</b>")
 
+    def _on_route_profile_changed(
+        self,
+        combo: Gtk.ComboBoxText,
+    ) -> None:
+        if self.syncing_route_profile:
+            return
+
+        profile_id = combo.get_active_id()
+
+        if profile_id is None:
+            return
+
+        profile = RoutingProfile.from_value(profile_id)
+
+        if self.trip.routing_profile == profile:
+            return
+
+        self.trip.routing_profile = profile
+        self.modified = True
+
+        self._update_window_title()
+        self._refresh_map()
+
+    def _on_avoid_motorways_toggled(
+        self,
+        check_button: Gtk.CheckButton,
+    ) -> None:
+        avoid_motorways = check_button.get_active()
+
+        if self.trip.avoid_motorways == avoid_motorways:
+            return
+
+        self.trip.avoid_motorways = avoid_motorways
+        self.osrm_route_provider.avoid_motorways = (
+            avoid_motorways
+        )
+
+        self.modified = True
+        self._update_window_title()
+        self._refresh_map()
+
     def _refresh_interface(self) -> None:
+        self.syncing_route_profile = True
+
+        try:
+            self.route_profile_combo.set_active_id(
+                self.trip.routing_profile.value
+            )
+        finally:
+            self.syncing_route_profile = False
+
+        self.osrm_route_provider.avoid_motorways = (
+            self.trip.avoid_motorways
+        )
+
+        self.avoid_motorways_check.set_active(
+            self.trip.avoid_motorways
+        )
+
         self.summary_label.set_text(
             f"{len(self.trip.stops)} stops  •  "
             f"{self.trip.total_nights} nachten  •  "
@@ -872,7 +970,8 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         route_coordinates = [
             coordinate.to_dict()
             for coordinate in self.route_service.calculate_route(
-                self.trip.stops
+                self.trip.stops,
+                profile=self.trip.routing_profile,
             )
         ]
 
