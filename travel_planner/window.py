@@ -14,12 +14,17 @@ gi.require_version("WebKit", "6.0")
 
 from gi.repository import Gio, GLib, Gtk, WebKit
 
+from travel_planner.route_service import (
+    OSRMRouteProvider,
+    RouteService,
+)
 from travel_planner.trip import Stop, Trip
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 TRIP_PATH = DATA_DIR / "adriatic-2026.trip.json"
+RECOVERY_STATE_PATH = DATA_DIR / "recovery-state.json"
 
 
 class AddStopDialog(Gtk.Dialog):
@@ -137,9 +142,15 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         )
 
         self.trip = Trip(name="Adriatic 2026")
+        self.route_service = RouteService(
+            provider=OSRMRouteProvider(),
+        )
         self.current_trip_path: Path | None = TRIP_PATH
         self.modified = False
         self.pending_action: str | None = None
+
+        self.recovery_autosave_path: Path | None = None
+        self.recovery_trip_path: Path | None = None
 
         self.web_content_manager = WebKit.UserContentManager()
         self.web_content_manager.connect(
@@ -183,6 +194,10 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.autosave_timer_id = GLib.timeout_add_seconds(
             30,
             self._on_autosave_timer,
+        )
+
+        GLib.idle_add(
+            self._check_startup_recovery,
         )
 
     def _build_interface(self) -> None:
@@ -533,10 +548,252 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         try:
             self.trip.save(autosave_path)
+            self._write_recovery_state(autosave_path)
         except OSError:
             return True
 
         return True
+
+    def _write_recovery_state(
+        self,
+        autosave_path: Path,
+    ) -> None:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        state = {
+            "autosave_path": str(autosave_path),
+            "trip_path": (
+                str(self.current_trip_path)
+                if self.current_trip_path is not None
+                else None
+            ),
+        }
+
+        try:
+            RECOVERY_STATE_PATH.write_text(
+                json.dumps(
+                    state,
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+    def _check_startup_recovery(self) -> bool:
+        candidate = self._find_recovery_candidate()
+
+        if candidate is None:
+            return False
+
+        autosave_path, trip_path = candidate
+
+        try:
+            Trip.load(autosave_path)
+        except (
+            OSError,
+            json.JSONDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+            self._remove_recovery_state()
+            return False
+
+        self.recovery_autosave_path = autosave_path
+        self.recovery_trip_path = trip_path
+
+        dialog = Gtk.AlertDialog()
+        dialog.set_message(
+            "Automatisch opgeslagen reis gevonden"
+        )
+        dialog.set_detail(
+            "Travel Planner is eerder afgesloten terwijl "
+            "er nog niet-opgeslagen wijzigingen waren. "
+            "Wilt u deze reis herstellen?"
+        )
+        dialog.set_buttons(
+            [
+                "Negeren",
+                "Herstellen",
+            ]
+        )
+        dialog.set_cancel_button(0)
+        dialog.set_default_button(1)
+
+        dialog.choose(
+            self,
+            None,
+            self._on_recovery_dialog_finished,
+            None,
+        )
+
+        return False
+
+    def _find_recovery_candidate(
+        self,
+    ) -> tuple[Path, Path | None] | None:
+        candidates: list[tuple[Path, Path | None]] = []
+
+        try:
+            state = json.loads(
+                RECOVERY_STATE_PATH.read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            autosave_value = state.get("autosave_path")
+            trip_value = state.get("trip_path")
+
+            if isinstance(autosave_value, str):
+                autosave_path = Path(autosave_value)
+                trip_path = (
+                    Path(trip_value)
+                    if isinstance(trip_value, str)
+                    else None
+                )
+                candidates.append(
+                    (autosave_path, trip_path)
+                )
+        except (
+            OSError,
+            json.JSONDecodeError,
+            AttributeError,
+            TypeError,
+        ):
+            pass
+
+        fallback_candidates = [
+            (
+                DATA_DIR / "unsaved-trip.autosave",
+                None,
+            ),
+            (
+                Path(f"{TRIP_PATH}.autosave"),
+                TRIP_PATH,
+            ),
+        ]
+
+        for candidate in fallback_candidates:
+            if candidate not in candidates:
+                candidates.append(candidate)
+
+        usable: list[tuple[Path, Path | None]] = []
+
+        for autosave_path, trip_path in candidates:
+            if not autosave_path.is_file():
+                continue
+
+            if trip_path is not None and trip_path.is_file():
+                try:
+                    if (
+                        autosave_path.stat().st_mtime
+                        <= trip_path.stat().st_mtime
+                    ):
+                        continue
+                except OSError:
+                    continue
+
+            usable.append(
+                (autosave_path, trip_path)
+            )
+
+        if not usable:
+            self._remove_recovery_state()
+            return None
+
+        try:
+            return max(
+                usable,
+                key=lambda item: item[0].stat().st_mtime,
+            )
+        except OSError:
+            return None
+
+    def _on_recovery_dialog_finished(
+        self,
+        dialog: Gtk.AlertDialog,
+        result: Gio.AsyncResult,
+        _user_data: object | None,
+    ) -> None:
+        try:
+            choice = dialog.choose_finish(result)
+        except GLib.Error:
+            return
+
+        autosave_path = self.recovery_autosave_path
+        trip_path = self.recovery_trip_path
+
+        self.recovery_autosave_path = None
+        self.recovery_trip_path = None
+
+        if autosave_path is None:
+            return
+
+        if choice == 1:
+            self._restore_autosave(
+                autosave_path,
+                trip_path,
+            )
+            return
+
+        self._discard_autosave(autosave_path)
+
+    def _restore_autosave(
+        self,
+        autosave_path: Path,
+        trip_path: Path | None,
+    ) -> None:
+        try:
+            trip = Trip.load(autosave_path)
+        except (
+            OSError,
+            json.JSONDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            self._show_message(
+                "Automatische opslag kon niet worden hersteld",
+                str(exc),
+            )
+            self._remove_recovery_state()
+            return
+
+        self.trip = trip
+        self.current_trip_path = trip_path
+        self.modified = True
+        self.pending_action = None
+
+        self.editing_stop_index = None
+        self.map_click_name = None
+        self.map_click_latitude = None
+        self.map_click_longitude = None
+
+        self._update_window_title()
+        self._refresh_interface()
+
+    def _discard_autosave(
+        self,
+        autosave_path: Path,
+    ) -> None:
+        try:
+            autosave_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+        self._remove_recovery_state()
+
+    def _remove_recovery_state(self) -> None:
+        try:
+            RECOVERY_STATE_PATH.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
     def _update_window_title(self) -> None:
         marker = " [gewijzigd]" if self.modified else ""
@@ -612,7 +869,17 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             for stop in self.trip.stops
         ]
 
-        script = f"window.setStops({json.dumps(stops)});"
+        route_coordinates = [
+            coordinate.to_dict()
+            for coordinate in self.route_service.calculate_route(
+                self.trip.stops
+            )
+        ]
+
+        script = (
+            f"window.setStops({json.dumps(stops)});"
+            f"window.setRoute({json.dumps(route_coordinates)});"
+        )
 
         self.web_view.evaluate_javascript(
             script,
@@ -1139,6 +1406,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         for autosave in (
             DATA_DIR / "unsaved-trip.autosave",
             Path(f"{path}.autosave"),
+            RECOVERY_STATE_PATH,
         ):
             try:
                 autosave.unlink()
