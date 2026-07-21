@@ -100,3 +100,56 @@ def test_old_trip_defaults_to_camper_profile(
     trip = Trip.load(path)
 
     assert trip.routing_profile is RoutingProfile.CAMPER
+
+
+def test_trip_saves_and_loads_travel_preferences(
+    tmp_path: Path,
+) -> None:
+    from travel_planner.travel_preferences import (
+        TravelPreferences,
+    )
+
+    path = tmp_path / "preferences.trip.json"
+    trip = Trip(
+        name="Custom route",
+        travel_preferences=TravelPreferences(
+            avoid_highways=True,
+            avoid_tolls=True,
+            avoid_ferries=False,
+        ),
+    )
+
+    trip.save(path)
+    loaded_trip = Trip.load(path)
+
+    assert loaded_trip.travel_preferences == (
+        TravelPreferences(
+            avoid_highways=True,
+            avoid_tolls=True,
+            avoid_ferries=False,
+        )
+    )
+
+
+def test_old_trip_defaults_to_empty_travel_preferences(
+    tmp_path: Path,
+) -> None:
+    from travel_planner.travel_preferences import (
+        TravelPreferences,
+    )
+
+    path = tmp_path / "old-trip.trip.json"
+    path.write_text(
+        json.dumps(
+            {
+                "name": "Oude reis",
+                "stops": [],
+                "routing_profile": "camper",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    trip = Trip.load(path)
+
+    assert trip.travel_preferences == TravelPreferences()

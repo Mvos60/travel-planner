@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from travel_planner.routing_profile import RoutingProfile
+from travel_planner.travel_preferences import TravelPreferences
 
 
 @dataclass
@@ -21,6 +22,7 @@ class Trip:
     name: str
     stops: list[Stop] = field(default_factory=list)
     routing_profile: RoutingProfile = RoutingProfile.CAMPER
+    travel_preferences: TravelPreferences = field(default_factory=TravelPreferences)
     avoid_motorways: bool = False
 
     def add_stop(self, stop: Stop) -> None:
@@ -31,6 +33,7 @@ class Trip:
             "name": self.name,
             "stops": [asdict(stop) for stop in self.stops],
             "routing_profile": self.routing_profile.value,
+            "travel_preferences": self.travel_preferences.to_dict(),
             "avoid_motorways": self.avoid_motorways,
         }
 
@@ -48,6 +51,9 @@ class Trip:
             name=data["name"],
             routing_profile=RoutingProfile.from_value(
                 data.get("routing_profile")
+            ),
+            travel_preferences=TravelPreferences.from_dict(
+                data.get("travel_preferences")
             ),
             avoid_motorways=bool(
                 data.get("avoid_motorways", False)
