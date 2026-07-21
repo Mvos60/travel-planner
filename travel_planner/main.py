@@ -8,6 +8,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gio, Gtk
 
+from travel_planner.context import TravelPlannerContext
 from travel_planner.window import TravelPlannerWindow
 
 
@@ -21,11 +22,16 @@ class TravelPlannerApplication(Gtk.Application):
             flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
         )
 
+        self.context = TravelPlannerContext.create_default()
+
     def do_activate(self) -> None:
         window = self.props.active_window
 
         if window is None:
-            window = TravelPlannerWindow(self)
+            window = TravelPlannerWindow(
+                self,
+                context=self.context,
+            )
 
         window.present()
 

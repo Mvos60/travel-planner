@@ -14,10 +14,7 @@ gi.require_version("WebKit", "6.0")
 
 from gi.repository import Gio, GLib, Gtk, WebKit
 
-from travel_planner.route_service import (
-    OSRMRouteProvider,
-    RouteService,
-)
+from travel_planner.context import TravelPlannerContext
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.trip import Stop, Trip
 
@@ -133,8 +130,15 @@ class AddStopDialog(Gtk.Dialog):
 
 
 class TravelPlannerWindow(Gtk.ApplicationWindow):
-    def __init__(self, application: Gtk.Application) -> None:
+    def __init__(
+        self,
+        application: Gtk.Application,
+        *,
+        context: TravelPlannerContext,
+    ) -> None:
         super().__init__(application=application)
+
+        self.context = context
 
         self.set_default_size(1200, 760)
         self.connect(
@@ -142,11 +146,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self._on_close_request,
         )
 
-        self.trip = Trip(name="Adriatic 2026")
-        self.osrm_route_provider = OSRMRouteProvider()
-        self.route_service = RouteService(
-            provider=self.osrm_route_provider,
-        )
+        self.route_service = self.context.route_service
         self.current_trip_path: Path | None = TRIP_PATH
         self.modified = False
         self.pending_action: str | None = None
@@ -225,6 +225,18 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         GLib.idle_add(
             self._check_startup_recovery,
         )
+
+    @property
+    def trip(self) -> Trip:
+        """Return the trip currently held by the application context."""
+
+        return self.context.current_trip
+
+    @trip.setter
+    def trip(self, trip: Trip) -> None:
+        """Replace the trip currently held by the application context."""
+
+        self.context.replace_trip(trip)
 
     def _build_interface(self) -> None:
         header = Gtk.HeaderBar()
