@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from gi.repository import Gtk
 
+from travel_planner.vehicle_profile import VehicleProfile
+from travel_planner.vehicle_profile_editor_dialog import (
+    VehicleProfileEditorDialog,
+)
 from travel_planner.vehicle_profile_repository import (
     VehicleProfileRepository,
 )
 
 
 class VehicleManagerDialog(Gtk.Window):
-    """Show the reusable vehicle profiles known to Travel Planner."""
+    """Manage reusable vehicle profiles."""
 
     def __init__(
         self,
         parent: Gtk.Window,
         repository: VehicleProfileRepository,
+        *,
+        on_profiles_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             title="Voertuigen",
@@ -24,6 +32,7 @@ class VehicleManagerDialog(Gtk.Window):
         )
 
         self.repository = repository
+        self.on_profiles_changed = on_profiles_changed
 
         self.set_default_size(520, 380)
         self.set_resizable(True)
@@ -43,7 +52,7 @@ class VehicleManagerDialog(Gtk.Window):
 
         explanation_label = Gtk.Label(
             label=(
-                "Voertuigprofielen kunnen later aan verschillende "
+                "Voertuigprofielen kunnen aan verschillende "
                 "reizen worden gekoppeld."
             )
         )
@@ -58,6 +67,10 @@ class VehicleManagerDialog(Gtk.Window):
         self.profile_list.connect(
             "row-selected",
             self._on_profile_selected,
+        )
+        self.profile_list.connect(
+            "row-activated",
+            self._on_profile_activated,
         )
 
         scroller = Gtk.ScrolledWindow()
@@ -74,11 +87,19 @@ class VehicleManagerDialog(Gtk.Window):
         )
 
         self.new_button = Gtk.Button(label="Nieuw")
-        self.edit_button = Gtk.Button(label="Bewerken")
-        self.delete_button = Gtk.Button(label="Verwijderen")
+        self.new_button.connect(
+            "clicked",
+            self._on_new_clicked,
+        )
 
-        self.new_button.set_sensitive(False)
+        self.edit_button = Gtk.Button(label="Bewerken")
         self.edit_button.set_sensitive(False)
+        self.edit_button.connect(
+            "clicked",
+            self._on_edit_clicked,
+        )
+
+        self.delete_button = Gtk.Button(label="Verwijderen")
         self.delete_button.set_sensitive(False)
 
         action_box.append(self.new_button)
@@ -110,9 +131,11 @@ class VehicleManagerDialog(Gtk.Window):
 
         self._refresh_profiles()
 
-    def _refresh_profiles(self) -> None:
-        """Rebuild the visible vehicle profile list."""
-
+    def _refresh_profiles(
+        self,
+        *,
+        select_profile_id: str | None = None,
+    ) -> None:
         child = self.profile_list.get_first_child()
 
         while child is not None:
@@ -139,7 +162,10 @@ class VehicleManagerDialog(Gtk.Window):
 
             row.set_child(label)
             self.profile_list.append(row)
+            self.edit_button.set_sensitive(False)
             return
+
+        row_to_select: Gtk.ListBoxRow | None = None
 
         for profile in profiles:
             row = Gtk.ListBoxRow()
@@ -158,9 +184,9 @@ class VehicleManagerDialog(Gtk.Window):
             name_label.set_xalign(0)
             name_label.add_css_class("heading")
 
-            details = self._profile_details(profile)
-
-            details_label = Gtk.Label(label=details)
+            details_label = Gtk.Label(
+                label=self._profile_details(profile)
+            )
             details_label.set_xalign(0)
             details_label.add_css_class("dim-label")
 
@@ -170,72 +196,122 @@ class VehicleManagerDialog(Gtk.Window):
             row.set_child(content)
             self.profile_list.append(row)
 
-    @staticmethod
-    def _profile_details(profile: object) -> str:
-        """Return a compact, readable profile summary."""
+            if profile.profile_id == select_profile_id:
+                row_to_select = row
 
+        if row_to_select is not None:
+            self.profile_list.select_row(row_to_select)
+
+    @staticmethod
+    def _profile_details(
+        profile: VehicleProfile,
+    ) -> str:
         parts: list[str] = []
 
-        length_m = getattr(profile, "length_m", None)
-        width_m = getattr(profile, "width_m", None)
-        height_m = getattr(profile, "height_m", None)
-        max_weight_kg = getattr(
-            profile,
-            "max_weight_kg",
-            None,
-        )
-        emission_class = getattr(
-            profile,
-            "emission_class",
-            None,
-        )
-
-        dimensions = [
-            value
-            for value in (
-                length_m,
-                width_m,
-                height_m,
-            )
-            if value is not None
-        ]
-
-        if len(dimensions) == 3:
+        if (
+            profile.length_m is not None
+            and profile.width_m is not None
+            and profile.height_m is not None
+        ):
             parts.append(
-                f"{length_m:.2f} × "
-                f"{width_m:.2f} × "
-                f"{height_m:.2f} m"
+                f"{profile.length_m:.2f} × "
+                f"{profile.width_m:.2f} × "
+                f"{profile.height_m:.2f} m"
             )
 
-        if max_weight_kg is not None:
-            parts.append(f"{max_weight_kg} kg")
+        if profile.max_weight_kg is not None:
+            parts.append(f"{profile.max_weight_kg} kg")
 
-        if emission_class:
-            parts.append(str(emission_class))
+        if profile.emission_class:
+            parts.append(profile.emission_class)
 
         if not parts:
             return "Nog geen voertuiggegevens ingevuld"
 
         return " · ".join(parts)
 
+    def _selected_profile(
+        self,
+    ) -> VehicleProfile | None:
+        row = self.profile_list.get_selected_row()
+
+        if row is None or not hasattr(row, "profile_id"):
+            return None
+
+        return self.repository.get(row.profile_id)
+
     def _on_profile_selected(
         self,
         _list_box: Gtk.ListBox,
         row: Gtk.ListBoxRow | None,
     ) -> None:
-        """Prepare selection handling for the next sprint."""
-
         has_profile = (
             row is not None
             and hasattr(row, "profile_id")
         )
 
-        # These actions become active in the next implementation phase.
-        self.edit_button.set_sensitive(False)
+        self.edit_button.set_sensitive(has_profile)
+
+        # Deletion is implemented in Sprint 009.6.
         self.delete_button.set_sensitive(False)
 
-        if not has_profile:
+    def _on_profile_activated(
+        self,
+        _list_box: Gtk.ListBox,
+        row: Gtk.ListBoxRow,
+    ) -> None:
+        if not hasattr(row, "profile_id"):
             return
+
+        self._open_editor(
+            self.repository.get(row.profile_id)
+        )
+
+    def _on_new_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        self._open_editor(None)
+
+    def _on_edit_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        profile = self._selected_profile()
+
+        if profile is None:
+            return
+
+        self._open_editor(profile)
+
+    def _open_editor(
+        self,
+        profile: VehicleProfile | None,
+    ) -> None:
+        editor = VehicleProfileEditorDialog(
+            parent=self,
+            profile=profile,
+            on_save=self._save_profile,
+        )
+        editor.present()
+
+    def _save_profile(
+        self,
+        profile: VehicleProfile,
+    ) -> None:
+        if self.repository.get(profile.profile_id) is None:
+            self.repository.add(profile)
+        else:
+            self.repository.update(profile)
+
+        self.repository.save()
+
+        self._refresh_profiles(
+            select_profile_id=profile.profile_id
+        )
+
+        if self.on_profiles_changed is not None:
+            self.on_profiles_changed()
 
     def _on_close_clicked(
         self,

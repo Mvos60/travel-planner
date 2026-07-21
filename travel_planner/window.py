@@ -1265,6 +1265,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             repository=(
                 self.context.vehicle_profile_repository
             ),
+            on_profiles_changed=self._refresh_interface,
         )
         dialog.present()
 
