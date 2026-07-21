@@ -185,6 +185,16 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.delete_button = Gtk.Button(label="Verwijderen")
         self.route_profile_combo = Gtk.ComboBoxText()
 
+        self.preferences_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+        )
+
+        self.preferences_placeholder = Gtk.Label(
+            label="No options for this profile."
+        )
+        self.preferences_placeholder.set_xalign(0)
+
         for profile in RoutingProfile:
             self.route_profile_combo.append(
                 profile.value,
@@ -192,6 +202,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             )
 
         self.syncing_route_profile = False
+        self.syncing_preferences = False
 
         self.avoid_motorways_check = Gtk.CheckButton(
             label="Snelwegen vermijden"
@@ -308,13 +319,26 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         sidebar.append(profile_label)
         sidebar.append(self.route_profile_combo)
 
+        preferences_label = Gtk.Label(
+            label="Travel Preferences"
+        )
+        preferences_label.set_xalign(0)
+        preferences_label.add_css_class("heading")
+        preferences_label.set_margin_top(12)
+
+        self.preferences_box.append(
+            self.preferences_placeholder
+        )
+
+        sidebar.append(preferences_label)
+        sidebar.append(self.preferences_box)
+
         self.avoid_motorways_check.set_margin_top(4)
         self.avoid_motorways_check.set_margin_bottom(4)
         self.avoid_motorways_check.connect(
             "toggled",
             self._on_avoid_motorways_toggled,
         )
-        sidebar.append(self.avoid_motorways_check)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(
@@ -842,6 +866,86 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.set_title(f"{title} — Travel Planner")
         self.header_title.set_markup(f"<b>{title}</b>")
 
+    def _clear_preferences_panel(self) -> None:
+        child = self.preferences_box.get_first_child()
+
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.preferences_box.remove(child)
+            child = next_child
+
+    def _refresh_preferences_panel(self) -> None:
+        self._clear_preferences_panel()
+
+        if self.trip.routing_profile is RoutingProfile.CUSTOM:
+            self._build_custom_preferences()
+            return
+
+        self.preferences_box.append(
+            self.preferences_placeholder
+        )
+
+    def _build_custom_preferences(self) -> None:
+        preferences = self.trip.travel_preferences
+
+        options = (
+            (
+                "Avoid highways",
+                "avoid_highways",
+                preferences.avoid_highways,
+            ),
+            (
+                "Avoid toll roads",
+                "avoid_tolls",
+                preferences.avoid_tolls,
+            ),
+            (
+                "Avoid ferries",
+                "avoid_ferries",
+                preferences.avoid_ferries,
+            ),
+        )
+
+        self.syncing_preferences = True
+
+        try:
+            for label, attribute_name, active in options:
+                checkbox = Gtk.CheckButton(label=label)
+                checkbox.set_active(active)
+                checkbox.connect(
+                    "toggled",
+                    self._on_travel_preference_toggled,
+                    attribute_name,
+                )
+                self.preferences_box.append(checkbox)
+        finally:
+            self.syncing_preferences = False
+
+    def _on_travel_preference_toggled(
+        self,
+        checkbox: Gtk.CheckButton,
+        attribute_name: str,
+    ) -> None:
+        if self.syncing_preferences:
+            return
+
+        preferences = self.trip.travel_preferences
+        new_value = checkbox.get_active()
+        current_value = getattr(preferences, attribute_name)
+
+        if current_value == new_value:
+            return
+
+        setattr(
+            preferences,
+            attribute_name,
+            new_value,
+        )
+
+        self.modified = True
+        self._update_window_title()
+        self._refresh_map()
+
     def _on_route_profile_changed(
         self,
         combo: Gtk.ComboBoxText,
@@ -863,6 +967,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.modified = True
 
         self._update_window_title()
+        self._refresh_preferences_panel()
         self._refresh_map()
 
     def _on_avoid_motorways_toggled(
@@ -892,6 +997,8 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             )
         finally:
             self.syncing_route_profile = False
+
+        self._refresh_preferences_panel()
 
         self.osrm_route_provider.avoid_motorways = (
             self.trip.avoid_motorways
