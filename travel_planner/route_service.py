@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from travel_planner.routing_profile import RoutingProfile
-from travel_planner.trip import Stop
+from travel_planner.stop import Stop
 
 
 DEFAULT_OSRM_BASE_URL = "https://router.project-osrm.org"

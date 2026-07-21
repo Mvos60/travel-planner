@@ -15,7 +15,7 @@ from travel_planner.route_service import (
     RouteProviderError,
     RouteService,
 )
-from travel_planner.trip import Stop
+from travel_planner.stop import Stop
 
 
 class FakeResponse(io.BytesIO):
