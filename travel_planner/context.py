@@ -62,7 +62,7 @@ class TravelPlannerContext:
         )
 
         current_trip = Trip(
-            name="Adriatic 2026"
+            name="Nieuwe reis"
         )
 
         return cls(

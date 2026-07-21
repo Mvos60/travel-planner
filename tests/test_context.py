@@ -24,6 +24,7 @@ def test_default_context_loads_default_settings(
     context = _context(tmp_path)
 
     assert context.settings == Settings()
+    assert context.current_trip.name == "Nieuwe reis"
     assert (
         context.current_trip.routing_profile
         is RoutingProfile.CAMPER

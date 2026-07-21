@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from gi.repository import Gtk
 
+from travel_planner.context import TravelPlannerContext
 from travel_planner.vehicle_profile import VehicleProfile
 from travel_planner.vehicle_profile_editor_dialog import (
     VehicleProfileEditorDialog,
@@ -23,6 +24,7 @@ class VehicleManagerDialog(Gtk.Window):
         parent: Gtk.Window,
         repository: VehicleProfileRepository,
         *,
+        context: TravelPlannerContext,
         on_profiles_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
@@ -32,6 +34,7 @@ class VehicleManagerDialog(Gtk.Window):
         )
 
         self.repository = repository
+        self.context = context
         self.on_profiles_changed = on_profiles_changed
 
         self.set_default_size(520, 380)
@@ -101,6 +104,11 @@ class VehicleManagerDialog(Gtk.Window):
 
         self.delete_button = Gtk.Button(label="Verwijderen")
         self.delete_button.set_sensitive(False)
+        self.delete_button.add_css_class("destructive-action")
+        self.delete_button.connect(
+            "clicked",
+            self._on_delete_clicked,
+        )
 
         action_box.append(self.new_button)
         action_box.append(self.edit_button)
@@ -143,6 +151,9 @@ class VehicleManagerDialog(Gtk.Window):
             self.profile_list.remove(child)
             child = next_child
 
+        self.edit_button.set_sensitive(False)
+        self.delete_button.set_sensitive(False)
+
         profiles = self.repository.list_profiles()
 
         if not profiles:
@@ -162,7 +173,6 @@ class VehicleManagerDialog(Gtk.Window):
 
             row.set_child(label)
             self.profile_list.append(row)
-            self.edit_button.set_sensitive(False)
             return
 
         row_to_select: Gtk.ListBoxRow | None = None
@@ -251,9 +261,7 @@ class VehicleManagerDialog(Gtk.Window):
         )
 
         self.edit_button.set_sensitive(has_profile)
-
-        # Deletion is implemented in Sprint 009.6.
-        self.delete_button.set_sensitive(False)
+        self.delete_button.set_sensitive(has_profile)
 
     def _on_profile_activated(
         self,
@@ -283,6 +291,174 @@ class VehicleManagerDialog(Gtk.Window):
             return
 
         self._open_editor(profile)
+
+    def _on_delete_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        profile = self._selected_profile()
+
+        if profile is None:
+            return
+
+        if (
+            self.context.current_trip.vehicle_profile_id
+            == profile.profile_id
+        ):
+            self._show_information_dialog(
+                title="Voertuig in gebruik",
+                message=(
+                    f'Het voertuigprofiel "{profile.name}" wordt '
+                    "gebruikt door de huidige reis en kan daarom "
+                    "niet worden verwijderd.\n\n"
+                    "Kies eerst een ander voertuig voor de reis."
+                ),
+            )
+            return
+
+        self._show_delete_confirmation(profile)
+
+    def _show_delete_confirmation(
+        self,
+        profile: VehicleProfile,
+    ) -> None:
+        dialog = Gtk.Window(
+            title="Voertuig verwijderen",
+            transient_for=self,
+            modal=True,
+        )
+        dialog.set_default_size(430, 210)
+        dialog.set_resizable(False)
+
+        root = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=16,
+        )
+        root.set_margin_top(20)
+        root.set_margin_bottom(20)
+        root.set_margin_start(20)
+        root.set_margin_end(20)
+
+        title_label = Gtk.Label(
+            label="Voertuigprofiel verwijderen?"
+        )
+        title_label.set_xalign(0)
+        title_label.add_css_class("title-3")
+
+        message_label = Gtk.Label(
+            label=(
+                f'Weet u zeker dat u "{profile.name}" '
+                "wilt verwijderen?\n\n"
+                "Deze actie kan niet ongedaan worden gemaakt."
+            )
+        )
+        message_label.set_xalign(0)
+        message_label.set_wrap(True)
+
+        button_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+        button_box.set_halign(Gtk.Align.END)
+
+        cancel_button = Gtk.Button(label="Annuleren")
+        cancel_button.connect(
+            "clicked",
+            lambda _button: dialog.close(),
+        )
+
+        delete_button = Gtk.Button(label="Verwijderen")
+        delete_button.add_css_class("destructive-action")
+        delete_button.connect(
+            "clicked",
+            self._confirm_delete,
+            dialog,
+            profile,
+        )
+
+        button_box.append(cancel_button)
+        button_box.append(delete_button)
+
+        root.append(title_label)
+        root.append(message_label)
+        root.append(button_box)
+
+        dialog.set_child(root)
+        dialog.present()
+
+    def _confirm_delete(
+        self,
+        _button: Gtk.Button,
+        dialog: Gtk.Window,
+        profile: VehicleProfile,
+    ) -> None:
+        removed = self.repository.remove(
+            profile.profile_id
+        )
+
+        if not removed:
+            dialog.close()
+            self._show_information_dialog(
+                title="Verwijderen mislukt",
+                message=(
+                    "Het voertuigprofiel bestaat niet meer."
+                ),
+            )
+            return
+
+        self.repository.save()
+        dialog.close()
+
+        self._refresh_profiles()
+
+        if self.on_profiles_changed is not None:
+            self.on_profiles_changed()
+
+    def _show_information_dialog(
+        self,
+        *,
+        title: str,
+        message: str,
+    ) -> None:
+        dialog = Gtk.Window(
+            title=title,
+            transient_for=self,
+            modal=True,
+        )
+        dialog.set_default_size(430, 210)
+        dialog.set_resizable(False)
+
+        root = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=16,
+        )
+        root.set_margin_top(20)
+        root.set_margin_bottom(20)
+        root.set_margin_start(20)
+        root.set_margin_end(20)
+
+        title_label = Gtk.Label(label=title)
+        title_label.set_xalign(0)
+        title_label.add_css_class("title-3")
+
+        message_label = Gtk.Label(label=message)
+        message_label.set_xalign(0)
+        message_label.set_wrap(True)
+
+        close_button = Gtk.Button(label="Sluiten")
+        close_button.set_halign(Gtk.Align.END)
+        close_button.add_css_class("suggested-action")
+        close_button.connect(
+            "clicked",
+            lambda _button: dialog.close(),
+        )
+
+        root.append(title_label)
+        root.append(message_label)
+        root.append(close_button)
+
+        dialog.set_child(root)
+        dialog.present()
 
     def _open_editor(
         self,
