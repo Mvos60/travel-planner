@@ -217,15 +217,11 @@ if (typeof L === "undefined") {
             route = null;
         }
 
-        const coordinates = [];
-
         stops.forEach(function(stop, index) {
             const coordinate = [
                 stop.latitude,
                 stop.longitude
             ];
-
-            coordinates.push(coordinate);
 
             const marker = L.marker(
                 coordinate,
@@ -254,26 +250,44 @@ if (typeof L === "undefined") {
             markers.push(marker);
         });
 
-        if (coordinates.length === 1) {
-            map.setView(coordinates[0], 9);
+        if (markers.length === 1) {
+            map.setView(markers[0].getLatLng(), 9);
+        }
+    };
+
+    window.setRoute = function(routeCoordinates) {
+        if (route) {
+            route.remove();
+            route = null;
         }
 
-        if (coordinates.length > 1) {
-            route = L.polyline(
-                coordinates,
-                {
-                    weight: 4,
-                    opacity: 0.8
-                }
-            ).addTo(map);
-
-            map.fitBounds(
-                route.getBounds(),
-                {
-                    padding: [30, 30]
-                }
-            );
+        if (routeCoordinates.length < 2) {
+            return;
         }
+
+        const coordinates = routeCoordinates.map(
+            function(coordinate) {
+                return [
+                    coordinate.latitude,
+                    coordinate.longitude
+                ];
+            }
+        );
+
+        route = L.polyline(
+            coordinates,
+            {
+                weight: 4,
+                opacity: 0.8
+            }
+        ).addTo(map);
+
+        map.fitBounds(
+            route.getBounds(),
+            {
+                padding: [30, 30]
+            }
+        );
     };
 }
 </script>
