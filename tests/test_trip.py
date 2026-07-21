@@ -267,3 +267,140 @@ def test_old_trip_defaults_to_empty_travel_preferences(
         trip.travel_preferences
         == TravelPreferences()
     )
+
+
+def test_old_trip_defaults_to_sixty_day_guideline(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "legacy-duration.trip.json"
+    path.write_text(
+        json.dumps(
+            {
+                "name": "Oude reis",
+                "stops": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    trip = Trip.load(path)
+
+    assert trip.trip_settings.planned_duration_days == 60
+    assert trip.trip_settings.shift_following_dates is True
+
+
+def test_trip_saves_and_loads_trip_settings(
+    tmp_path: Path,
+) -> None:
+    from travel_planner.trip_settings import TripSettings
+
+    path = tmp_path / "settings.trip.json"
+    trip = Trip(
+        name="Lange reis",
+        trip_settings=TripSettings(
+            planned_duration_days=75,
+            shift_following_dates=False,
+        ),
+    )
+
+    trip.save(path)
+    loaded = Trip.load(path)
+
+    assert loaded.trip_settings.planned_duration_days == 75
+    assert loaded.trip_settings.shift_following_dates is False
+
+
+def test_trip_calculates_calendar_period() -> None:
+    trip = Trip(name="Adriatic")
+
+    trip.add_stop(
+        Stop(
+            title="Salzburg",
+            latitude=47.8095,
+            longitude=13.0550,
+            arrival_date="2026-09-14",
+            departure_date="2026-09-17",
+        )
+    )
+    trip.add_stop(
+        Stop(
+            title="Bohinj",
+            latitude=46.2823,
+            longitude=13.8582,
+            arrival_date="2026-09-18",
+            departure_date="2026-09-25",
+        )
+    )
+
+    assert trip.start_date.isoformat() == "2026-09-14"
+    assert trip.end_date.isoformat() == "2026-09-25"
+    assert trip.total_days == 12
+    assert trip.remaining_days == 48
+    assert trip.is_overplanned is False
+
+
+def test_trip_can_exceed_duration_guideline() -> None:
+    trip = Trip(name="Flexibele reis")
+
+    trip.add_stop(
+        Stop(
+            title="Begin",
+            latitude=45.0,
+            longitude=5.0,
+            arrival_date="2026-09-01",
+            departure_date="2026-11-05",
+        )
+    )
+
+    assert trip.total_days == 66
+    assert trip.remaining_days == -6
+    assert trip.is_overplanned is True
+    assert "6 dagen langer" in trip.planning_summary
+
+
+def test_trip_without_dates_remains_supported() -> None:
+    trip = Trip(name="Vrije reis")
+    trip.add_stop(
+        Stop(
+            title="Ergens",
+            latitude=45.0,
+            longitude=5.0,
+            nights=3,
+        )
+    )
+
+    assert trip.start_date is None
+    assert trip.end_date is None
+    assert trip.total_days is None
+    assert trip.remaining_days is None
+    assert trip.is_overplanned is False
+    assert trip.planning_summary == (
+        "3 nachten gepland  •  richtwaarde 60 dagen"
+    )
+
+
+def test_trip_reports_partially_completed_dates() -> None:
+    trip = Trip(name="Deels gepland")
+
+    trip.add_stop(
+        Stop(
+            title="Eerste",
+            latitude=45.0,
+            longitude=5.0,
+            arrival_date="2026-09-01",
+            departure_date="2026-09-03",
+        )
+    )
+    trip.add_stop(
+        Stop(
+            title="Later bepalen",
+            latitude=46.0,
+            longitude=6.0,
+            nights=2,
+        )
+    )
+
+    assert trip.has_partial_dates is True
+    assert "datums gedeeltelijk ingevuld" in (
+        trip.planning_summary
+    )

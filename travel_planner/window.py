@@ -1067,7 +1067,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.summary_label.set_text(
             f"{len(self.trip.stops)} stops  •  "
             f"{self.trip.total_nights} nachten  •  "
-            "60 dagen beschikbaar"
+            f"{self.trip.planning_summary}"
         )
 
         child = self.stop_list.get_first_child()

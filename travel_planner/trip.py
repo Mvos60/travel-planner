@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
 from travel_planner.travel_preferences import TravelPreferences
+from travel_planner.trip_settings import TripSettings
 
 
 @dataclass
@@ -18,6 +20,9 @@ class Trip:
     routing_profile: RoutingProfile = RoutingProfile.CAMPER
     travel_preferences: TravelPreferences = field(
         default_factory=TravelPreferences
+    )
+    trip_settings: TripSettings = field(
+        default_factory=TripSettings
     )
     vehicle_profile_id: str | None = None
     avoid_motorways: bool = False
@@ -45,6 +50,7 @@ class Trip:
             "travel_preferences": (
                 self.travel_preferences.to_dict()
             ),
+            "trip_settings": self.trip_settings.to_dict(),
             "vehicle_profile_id": self.vehicle_profile_id,
             "avoid_motorways": self.avoid_motorways,
         }
@@ -53,17 +59,19 @@ class Trip:
             parents=True,
             exist_ok=True,
         )
+
         path.write_text(
             json.dumps(
                 data,
                 indent=2,
                 ensure_ascii=False,
-            ),
+            )
+            + "\n",
             encoding="utf-8",
         )
 
     @classmethod
-    def load(cls, path: Path) -> Trip:
+    def load(cls, path: Path) -> "Trip":
         """
         Load a trip from current or legacy JSON data.
 
@@ -84,6 +92,9 @@ class Trip:
                 TravelPreferences.from_dict(
                     data.get("travel_preferences")
                 )
+            ),
+            trip_settings=TripSettings.from_dict(
+                data.get("trip_settings")
             ),
             vehicle_profile_id=data.get(
                 "vehicle_profile_id"
@@ -117,4 +128,137 @@ class Trip:
         return sum(
             stop.nights
             for stop in self.stops
+        )
+
+    @property
+    def start_date(self) -> date | None:
+        """Return the earliest known arrival date."""
+
+        arrival_dates = [
+            date.fromisoformat(stop.arrival_date)
+            for stop in self.stops
+            if stop.arrival_date is not None
+        ]
+
+        if not arrival_dates:
+            return None
+
+        return min(arrival_dates)
+
+    @property
+    def end_date(self) -> date | None:
+        """Return the latest known departure or arrival date."""
+
+        known_dates: list[date] = []
+
+        for stop in self.stops:
+            if stop.departure_date is not None:
+                known_dates.append(
+                    date.fromisoformat(stop.departure_date)
+                )
+            elif stop.arrival_date is not None:
+                known_dates.append(
+                    date.fromisoformat(stop.arrival_date)
+                )
+
+        if not known_dates:
+            return None
+
+        return max(known_dates)
+
+    @property
+    def total_days(self) -> int | None:
+        """Return inclusive calendar duration when both ends are known."""
+
+        if self.start_date is None or self.end_date is None:
+            return None
+
+        return (
+            self.end_date - self.start_date
+        ).days + 1
+
+    @property
+    def remaining_days(self) -> int | None:
+        """
+        Return days remaining against the planning guideline.
+
+        A negative value means the trip exceeds the guideline.
+        """
+
+        if self.total_days is None:
+            return None
+
+        return (
+            self.trip_settings.planned_duration_days
+            - self.total_days
+        )
+
+    @property
+    def is_overplanned(self) -> bool:
+        """Return whether the dated trip exceeds its guideline."""
+
+        return (
+            self.remaining_days is not None
+            and self.remaining_days < 0
+        )
+
+    @property
+    def has_partial_dates(self) -> bool:
+        """Return whether some, but not all, stops have complete dates."""
+
+        if not self.stops:
+            return False
+
+        complete_count = sum(
+            1
+            for stop in self.stops
+            if (
+                stop.arrival_date is not None
+                and stop.departure_date is not None
+            )
+        )
+
+        return 0 < complete_count < len(self.stops)
+
+    @property
+    def planning_summary(self) -> str:
+        """Return a flexible human-readable planning summary."""
+
+        planned_days = (
+            self.trip_settings.planned_duration_days
+        )
+
+        if self.total_days is None:
+            return (
+                f"{self.total_nights} nachten gepland  •  "
+                f"richtwaarde {planned_days} dagen"
+            )
+
+        if self.remaining_days is None:
+            return (
+                f"{self.total_days} dagen gepland  •  "
+                f"richtwaarde {planned_days} dagen"
+            )
+
+        if self.remaining_days > 0:
+            status = (
+                f"{self.remaining_days} dagen ruimte"
+            )
+        elif self.remaining_days == 0:
+            status = "precies op richtwaarde"
+        else:
+            status = (
+                f"{abs(self.remaining_days)} dagen langer"
+            )
+
+        partial_text = (
+            "  •  datums gedeeltelijk ingevuld"
+            if self.has_partial_dates
+            else ""
+        )
+
+        return (
+            f"{self.total_days} / {planned_days} dagen"
+            f"  •  {status}"
+            f"{partial_text}"
         )
