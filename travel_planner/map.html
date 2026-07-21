@@ -234,9 +234,38 @@ if (typeof L === "undefined") {
                 }
             ).addTo(map);
 
+            const stopFeatures = [];
+
+            if (stop.overnight) {
+                stopFeatures.push("overnachting");
+            }
+
+            if (stop.favorite) {
+                stopFeatures.push("favoriet");
+            }
+
+            if (stop.photo_location) {
+                stopFeatures.push("fotolocatie");
+            }
+
+            let dateText = "";
+
+            if (stop.arrival_date && stop.departure_date) {
+                dateText =
+                    `<br>${stop.arrival_date} → ${stop.departure_date}`;
+            } else if (stop.arrival_date) {
+                dateText = `<br>vanaf ${stop.arrival_date}`;
+            }
+
+            const featureText = stopFeatures.length
+                ? `<br>${stopFeatures.join(" • ")}`
+                : "";
+
             marker.bindPopup(
-                `<strong>${index + 1}. ${stop.name}</strong><br>` +
-                `${stop.nights} nacht(en)`
+                `<strong>${index + 1}. ${stop.title}</strong><br>` +
+                `${stop.nights} nacht(en)` +
+                dateText +
+                featureText
             );
 
             marker.on("click", function() {

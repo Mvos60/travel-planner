@@ -16,7 +16,9 @@ from gi.repository import Gio, GLib, Gtk, WebKit
 
 from travel_planner.context import TravelPlannerContext
 from travel_planner.routing_profile import RoutingProfile
-from travel_planner.trip import Stop, Trip
+from travel_planner.stop import Stop
+from travel_planner.stop_editor_dialog import StopEditorDialog
+from travel_planner.trip import Trip
 from travel_planner.vehicle_manager_dialog import VehicleManagerDialog
 
 
@@ -24,110 +26,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 TRIP_PATH = DATA_DIR / "adriatic-2026.trip.json"
 RECOVERY_STATE_PATH = DATA_DIR / "recovery-state.json"
-
-
-class AddStopDialog(Gtk.Dialog):
-    def __init__(
-        self,
-        parent: Gtk.Window,
-        stop: Stop | None = None,
-        initial_name: str | None = None,
-        initial_latitude: float | None = None,
-        initial_longitude: float | None = None,
-    ) -> None:
-        super().__init__(
-            title="Stop toevoegen",
-            transient_for=parent,
-            modal=True,
-        )
-
-        self.add_button("Annuleren", Gtk.ResponseType.CANCEL)
-        self.add_button("Toevoegen", Gtk.ResponseType.OK)
-
-        self.name_entry = Gtk.Entry()
-        self.name_entry.set_width_chars(32)
-        self.latitude_entry = Gtk.Entry()
-        self.longitude_entry = Gtk.Entry()
-        self.nights_spin = Gtk.SpinButton.new_with_range(0, 60, 1)
-
-        if stop is None:
-            if (
-                initial_latitude is not None
-                and initial_longitude is not None
-            ):
-                self.name_entry.set_text(initial_name or "")
-                self.latitude_entry.set_text(
-                    f"{initial_latitude:.6f}"
-                )
-                self.longitude_entry.set_text(
-                    f"{initial_longitude:.6f}"
-                )
-            else:
-                self.name_entry.set_text("")
-                self.latitude_entry.set_text("")
-                self.longitude_entry.set_text("")
-
-            self.nights_spin.set_value(1)
-        else:
-            self.set_title("Stop bewerken")
-            self.name_entry.set_text(stop.name)
-            self.latitude_entry.set_text(str(stop.latitude))
-            self.longitude_entry.set_text(str(stop.longitude))
-            self.nights_spin.set_value(stop.nights)
-
-        grid = Gtk.Grid(
-            column_spacing=12,
-            row_spacing=12,
-        )
-        grid.set_margin_top(18)
-        grid.set_margin_bottom(18)
-        grid.set_margin_start(18)
-        grid.set_margin_end(18)
-
-        grid.attach(Gtk.Label(label="Plaats"), 0, 0, 1, 1)
-        grid.attach(self.name_entry, 1, 0, 1, 1)
-
-        grid.attach(Gtk.Label(label="Breedtegraad"), 0, 1, 1, 1)
-        grid.attach(self.latitude_entry, 1, 1, 1, 1)
-
-        grid.attach(Gtk.Label(label="Lengtegraad"), 0, 2, 1, 1)
-        grid.attach(self.longitude_entry, 1, 2, 1, 1)
-
-        grid.attach(Gtk.Label(label="Nachten"), 0, 3, 1, 1)
-        grid.attach(self.nights_spin, 1, 3, 1, 1)
-
-        self.get_content_area().append(grid)
-
-    def get_stop(self) -> Stop:
-        name = self.name_entry.get_text().strip()
-
-        if not name:
-            raise ValueError("De plaatsnaam ontbreekt.")
-
-        try:
-            latitude = float(self.latitude_entry.get_text().strip())
-            longitude = float(self.longitude_entry.get_text().strip())
-        except ValueError as exc:
-            raise ValueError(
-                "Breedtegraad en lengtegraad moeten getallen zijn."
-            ) from exc
-
-        if not -90 <= latitude <= 90:
-            raise ValueError(
-                "Breedtegraad moet tussen -90 en 90 liggen."
-            )
-
-        if not -180 <= longitude <= 180:
-            raise ValueError(
-                "Lengtegraad moet tussen -180 en 180 liggen."
-            )
-
-        return Stop(
-            name=name,
-            latitude=latitude,
-            longitude=longitude,
-            nights=int(self.nights_spin.get_value()),
-        )
 
 
 class TravelPlannerWindow(Gtk.ApplicationWindow):
@@ -142,6 +40,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.context = context
 
         self.set_default_size(1200, 760)
+        self.maximize()
         self.connect(
             "close-request",
             self._on_close_request,
@@ -1193,13 +1092,44 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
             name_label = Gtk.Label()
             name_label.set_markup(
-                f"<b>{index}. {stop.name}</b>"
+                f"<b>{index}. {stop.title}</b>"
             )
             name_label.set_xalign(0)
 
+            stop_features = []
+
+            if stop.overnight:
+                stop_features.append("overnachting")
+
+            if stop.favorite:
+                stop_features.append("favoriet")
+
+            if stop.photo_location:
+                stop_features.append("fotolocatie")
+
+            feature_text = (
+                "  •  " + ", ".join(stop_features)
+                if stop_features
+                else ""
+            )
+
+            date_text = ""
+
+            if stop.arrival_date and stop.departure_date:
+                date_text = (
+                    f"  •  {stop.arrival_date}"
+                    f" → {stop.departure_date}"
+                )
+            elif stop.arrival_date:
+                date_text = (
+                    f"  •  vanaf {stop.arrival_date}"
+                )
+
             details_label = Gtk.Label(
                 label=(
-                    f"{stop.nights} nacht(en)  •  "
+                    f"{stop.nights} nacht(en)"
+                    f"{date_text}"
+                    f"{feature_text}\n"
                     f"{stop.latitude:.5f}, "
                     f"{stop.longitude:.5f}"
                 )
@@ -1223,10 +1153,16 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
     def _refresh_map(self) -> None:
         stops = [
             {
-                "name": stop.name,
+                "stop_id": stop.stop_id,
+                "title": stop.title,
                 "latitude": stop.latitude,
                 "longitude": stop.longitude,
                 "nights": stop.nights,
+                "arrival_date": stop.arrival_date,
+                "departure_date": stop.departure_date,
+                "overnight": stop.overnight,
+                "favorite": stop.favorite,
+                "photo_location": stop.photo_location,
             }
             for stop in self.trip.stops
         ]
@@ -1397,9 +1333,9 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
     ) -> None:
         self.editing_stop_index = None
 
-        dialog = AddStopDialog(
+        dialog = StopEditorDialog(
             self,
-            initial_name=self.map_click_name,
+            initial_title=self.map_click_name,
             initial_latitude=self.map_click_latitude,
             initial_longitude=self.map_click_longitude,
         )
@@ -1448,7 +1384,10 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.editing_stop_index = stop_index
         stop = self.trip.stops[stop_index]
 
-        dialog = AddStopDialog(self, stop)
+        dialog = StopEditorDialog(
+            self,
+            stop=stop,
+        )
         dialog.connect(
             "response",
             self._on_add_stop_response,
@@ -1457,7 +1396,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
     def _on_add_stop_response(
         self,
-        dialog: AddStopDialog,
+        dialog: StopEditorDialog,
         response: int,
     ) -> None:
         if response != Gtk.ResponseType.OK:
