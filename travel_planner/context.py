@@ -11,6 +11,7 @@ from travel_planner.route_service import (
 )
 from travel_planner.settings import Settings
 from travel_planner.settings_repository import SettingsRepository
+from travel_planner.stop_repository import StopRepository
 from travel_planner.trip import Trip
 from travel_planner.vehicle_profile_repository import (
     VehicleProfileRepository,
@@ -28,6 +29,7 @@ class TravelPlannerContext:
     settings: Settings
     settings_repository: SettingsRepository
     vehicle_profile_repository: VehicleProfileRepository
+    stop_repository: StopRepository
     route_service: RouteService
     current_trip: Trip
 
@@ -37,6 +39,7 @@ class TravelPlannerContext:
         *,
         settings_path: Path | None = None,
         vehicle_profiles_path: Path | None = None,
+        stops_path: Path | None = None,
     ) -> "TravelPlannerContext":
         """Build the normal application context.
 
@@ -54,8 +57,13 @@ class TravelPlannerContext:
             )
         )
 
+        stop_repository = StopRepository(
+            stops_path
+        )
+
         settings = settings_repository.load()
         vehicle_profile_repository.load()
+        stop_repository.load()
 
         route_service = RouteService(
             provider=OSRMRouteProvider()
@@ -71,6 +79,7 @@ class TravelPlannerContext:
             vehicle_profile_repository=(
                 vehicle_profile_repository
             ),
+            stop_repository=stop_repository,
             route_service=route_service,
             current_trip=current_trip,
         )
@@ -83,6 +92,12 @@ class TravelPlannerContext:
             self.vehicle_profile_repository
             .list_profiles()
         )
+
+    @property
+    def stops(self):
+        """Return the currently loaded stops in route order."""
+
+        return self.stop_repository.list_stops()
 
     def replace_trip(
         self,
