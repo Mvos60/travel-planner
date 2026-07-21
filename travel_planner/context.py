@@ -1,0 +1,93 @@
+"""Central application context for Travel Planner."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from travel_planner.route_service import (
+    OSRMRouteProvider,
+    RouteService,
+)
+from travel_planner.settings import Settings
+from travel_planner.settings_repository import SettingsRepository
+from travel_planner.trip import Trip
+from travel_planner.vehicle_profile_repository import (
+    VehicleProfileRepository,
+)
+
+
+@dataclass
+class TravelPlannerContext:
+    """Shared application state and services.
+
+    GTK windows receive this context rather than constructing repositories,
+    services, and application settings themselves.
+    """
+
+    settings: Settings
+    settings_repository: SettingsRepository
+    vehicle_profile_repository: VehicleProfileRepository
+    route_service: RouteService
+    current_trip: Trip
+
+    @classmethod
+    def create_default(
+        cls,
+        *,
+        settings_path: Path | None = None,
+        vehicle_profiles_path: Path | None = None,
+    ) -> "TravelPlannerContext":
+        """Build the normal application context.
+
+        Optional paths make the context safely testable without touching the
+        user's real configuration directory.
+        """
+
+        settings_repository = SettingsRepository(
+            settings_path
+        )
+
+        vehicle_profile_repository = (
+            VehicleProfileRepository(
+                vehicle_profiles_path
+            )
+        )
+
+        settings = settings_repository.load()
+        vehicle_profile_repository.load()
+
+        route_service = RouteService(
+            provider=OSRMRouteProvider()
+        )
+
+        current_trip = Trip(
+            name="Adriatic 2026"
+        )
+
+        return cls(
+            settings=settings,
+            settings_repository=settings_repository,
+            vehicle_profile_repository=(
+                vehicle_profile_repository
+            ),
+            route_service=route_service,
+            current_trip=current_trip,
+        )
+
+    @property
+    def vehicle_profiles(self):
+        """Return the currently loaded vehicle profiles."""
+
+        return (
+            self.vehicle_profile_repository
+            .list_profiles()
+        )
+
+    def replace_trip(
+        self,
+        trip: Trip,
+    ) -> None:
+        """Set the trip currently used by the application."""
+
+        self.current_trip = trip
