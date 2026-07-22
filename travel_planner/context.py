@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from travel_planner.route_service import (
-    OSRMRouteProvider,
-    RouteService,
+from travel_planner.route_provider_manager import (
+    RouteProviderManager,
 )
+from travel_planner.route_service import RouteService
 from travel_planner.settings import Settings
 from travel_planner.settings_repository import SettingsRepository
 from travel_planner.stop_repository import StopRepository
@@ -30,6 +30,7 @@ class TravelPlannerContext:
     settings_repository: SettingsRepository
     vehicle_profile_repository: VehicleProfileRepository
     stop_repository: StopRepository
+    route_provider_manager: RouteProviderManager
     route_service: RouteService
     current_trip: Trip
 
@@ -65,8 +66,15 @@ class TravelPlannerContext:
         vehicle_profile_repository.load()
         stop_repository.load()
 
+        route_provider_manager = RouteProviderManager()
+
         route_service = RouteService(
-            provider=OSRMRouteProvider()
+            provider=(
+                route_provider_manager.active_provider
+            ),
+            fallback_provider=(
+                route_provider_manager.fallback_provider
+            ),
         )
 
         current_trip = Trip(
@@ -80,6 +88,9 @@ class TravelPlannerContext:
                 vehicle_profile_repository
             ),
             stop_repository=stop_repository,
+            route_provider_manager=(
+                route_provider_manager
+            ),
             route_service=route_service,
             current_trip=current_trip,
         )

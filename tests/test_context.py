@@ -123,3 +123,24 @@ def test_context_can_replace_current_trip(
     context.replace_trip(replacement)
 
     assert context.current_trip is replacement
+
+
+def test_default_context_uses_route_provider_manager(
+    tmp_path,
+):
+    context = TravelPlannerContext.create_default(
+        settings_path=tmp_path / "settings.json",
+        vehicle_profiles_path=(
+            tmp_path / "vehicles.json"
+        ),
+        stops_path=tmp_path / "stops.json",
+    )
+
+    assert (
+        context.route_provider_manager.active_provider_id
+        == "osrm-demo"
+    )
+    assert (
+        context.route_service.provider
+        is context.route_provider_manager.active_provider
+    )

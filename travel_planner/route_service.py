@@ -258,6 +258,9 @@ class RouteService:
             fallback_provider or DirectRouteProvider()
         )
 
+    def set_provider(self, provider: RouteProvider) -> None:
+        self.provider = provider
+
     @property
     def capabilities(self) -> RouteProviderCapabilities:
         """Return the capabilities of the active provider."""
