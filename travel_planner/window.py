@@ -15,6 +15,9 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gio, GLib, Gtk, Pango, WebKit
 
 from travel_planner.planning_engine import plan_trip
+from travel_planner.provider_settings_dialog import (
+    ProviderSettingsDialog,
+)
 from travel_planner.route_metrics import (
     calculate_route_distance_km,
     format_distance_km,
@@ -181,6 +184,16 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self._on_trip_settings_clicked,
         )
         menu_box.append(trip_settings_button)
+
+        provider_settings_button = Gtk.Button(
+            label="Routeproviderinstellingen..."
+        )
+        provider_settings_button.add_css_class("flat")
+        provider_settings_button.connect(
+            "clicked",
+            self._on_provider_settings_clicked,
+        )
+        menu_box.append(provider_settings_button)
 
         vehicles_button = Gtk.Button(
             label="Voertuigen..."
@@ -1385,6 +1398,81 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             None,
             None,
         )
+
+    def _on_provider_settings_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        """Open persistent route-provider settings."""
+
+        dialog = ProviderSettingsDialog(
+            self,
+            manager=self.context.route_provider_manager,
+            selected_provider_id=(
+                self.context.settings.route_provider
+            ),
+            openrouteservice_api_key=(
+                self.context.settings
+                .openrouteservice_api_key
+            ),
+        )
+
+        dialog.connect(
+            "response",
+            self._on_provider_settings_response,
+        )
+        dialog.present()
+
+    def _on_provider_settings_response(
+        self,
+        dialog: ProviderSettingsDialog,
+        response_id: int,
+    ) -> None:
+        """Save provider settings or close without changes."""
+
+        if response_id != Gtk.ResponseType.OK:
+            dialog.destroy()
+            return
+
+        provider_id = dialog.selected_provider_id
+        api_key = dialog.openrouteservice_api_key
+
+        manager = self.context.route_provider_manager
+
+        try:
+            manager.set_openrouteservice_api_key(
+                api_key
+            )
+            manager.set_active_provider(provider_id)
+        except (KeyError, TypeError) as exc:
+            dialog.destroy()
+            self._show_error_dialog(
+                "Routeproviderinstellingen konden niet "
+                f"worden opgeslagen: {exc}"
+            )
+            return
+
+        self.context.settings.route_provider = (
+            provider_id
+        )
+        self.context.settings.openrouteservice_api_key = (
+            api_key
+        )
+
+        self.context.settings_repository.save(
+            self.context.settings
+        )
+
+        self.route_service.set_provider(
+            manager.active_provider
+        )
+        self.osrm_route_provider = (
+            manager.active_provider
+        )
+
+        self._refresh_route_provider_selector()
+
+        dialog.destroy()
 
     def _on_trip_settings_clicked(
         self,
