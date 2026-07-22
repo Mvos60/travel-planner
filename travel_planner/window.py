@@ -12,13 +12,15 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
 
-from gi.repository import Gio, GLib, Gtk, WebKit
+from gi.repository import Gio, GLib, Gtk, Pango, WebKit
 
+from travel_planner.planning_engine import plan_trip
 from travel_planner.context import TravelPlannerContext
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
 from travel_planner.stop_editor_dialog import StopEditorDialog
 from travel_planner.trip import Trip
+from travel_planner.trip_settings_dialog import TripSettingsDialog
 from travel_planner.vehicle_manager_dialog import VehicleManagerDialog
 
 
@@ -41,7 +43,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self.set_default_size(1200, 760)
         self.maximize()
-        self.connect(
+        self.close_request_handler_id = self.connect(
             "close-request",
             self._on_close_request,
         )
@@ -51,6 +53,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.current_trip_path: Path | None = None
         self.modified = False
         self.pending_action: str | None = None
+        self.destructive_dialog_open = False
 
         self.recovery_autosave_path: Path | None = None
         self.recovery_trip_path: Path | None = None
@@ -161,6 +164,16 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         menu_box.set_margin_bottom(6)
         menu_box.set_margin_start(6)
         menu_box.set_margin_end(6)
+
+        trip_settings_button = Gtk.Button(
+            label="Reisinstellingen..."
+        )
+        trip_settings_button.add_css_class("flat")
+        trip_settings_button.connect(
+            "clicked",
+            self._on_trip_settings_clicked,
+        )
+        menu_box.append(trip_settings_button)
 
         vehicles_button = Gtk.Button(
             label="Voertuigen..."
@@ -1077,10 +1090,18 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.stop_list.remove(child)
             child = next_child
 
+        planning = plan_trip(self.trip)
+
         for index, stop in enumerate(
             self.trip.stops,
             start=1,
         ):
+            planned_stop = planning.for_stop(stop)
+
+            if planned_stop is None:
+                raise RuntimeError(
+                    "Planning information ontbreekt voor een stop."
+                )
             box = Gtk.Box(
                 orientation=Gtk.Orientation.VERTICAL,
                 spacing=3,
@@ -1095,6 +1116,13 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 f"<b>{index}. {stop.title}</b>"
             )
             name_label.set_xalign(0)
+            name_label.set_hexpand(True)
+            name_label.set_ellipsize(
+                Pango.EllipsizeMode.END
+            )
+            name_label.set_tooltip_text(
+                f"{index}. {stop.title}"
+            )
 
             stop_features = []
 
@@ -1125,9 +1153,29 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                     f"  •  vanaf {stop.arrival_date}"
                 )
 
+            planning_parts = [
+                planned_stop.day_label,
+            ]
+
+            if planned_stop.date_label is not None:
+                planning_parts.append(
+                    planned_stop.date_label
+                )
+
+            planning_text = "  •  ".join(
+                planning_parts
+            )
+
+            night_label = (
+                "1 nacht"
+                if stop.nights == 1
+                else f"{stop.nights} nachten"
+            )
+
             details_label = Gtk.Label(
                 label=(
-                    f"{stop.nights} nacht(en)"
+                    f"{planning_text}\n"
+                    f"{night_label}"
                     f"{date_text}"
                     f"{feature_text}\n"
                     f"{stop.latitude:.5f}, "
@@ -1135,6 +1183,11 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 )
             )
             details_label.set_xalign(0)
+            details_label.set_hexpand(True)
+            details_label.set_wrap(True)
+            details_label.set_wrap_mode(
+                Pango.WrapMode.WORD_CHAR
+            )
             details_label.add_css_class("dim-label")
 
             box.append(name_label)
@@ -1190,6 +1243,58 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             None,
         )
 
+    def _on_trip_settings_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        """Open settings for the current trip."""
+
+        dialog = TripSettingsDialog(
+            parent=self,
+            trip_name=self.trip.name,
+            settings=self.trip.trip_settings,
+        )
+        dialog.connect(
+            "response",
+            self._on_trip_settings_response,
+        )
+        dialog.present()
+
+    def _on_trip_settings_response(
+        self,
+        dialog: TripSettingsDialog,
+        response_id: int,
+    ) -> None:
+        """Apply validated trip settings or close the dialog."""
+
+        if response_id != Gtk.ResponseType.OK:
+            dialog.destroy()
+            return
+
+        try:
+            new_trip_name = dialog.get_trip_name()
+            new_settings = dialog.get_settings()
+        except ValueError as exc:
+            dialog.show_validation_error(str(exc))
+            return
+
+        changed = False
+
+        if new_trip_name != self.trip.name:
+            self.trip.name = new_trip_name
+            changed = True
+
+        if new_settings != self.trip.trip_settings:
+            self.trip.trip_settings = new_settings
+            changed = True
+
+        if changed:
+            self.modified = True
+            self._update_window_title()
+            self._refresh_interface()
+
+        dialog.destroy()
+
     def _on_vehicle_manager_clicked(
         self,
         _button: Gtk.Button,
@@ -1208,11 +1313,21 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
     def _on_quit_clicked(
         self,
-        _button: Gtk.Button,
+        button: Gtk.Button,
     ) -> None:
         """Close the application through the normal safety checks."""
 
+        popover = button.get_ancestor(Gtk.Popover)
+
+        if popover is not None:
+            popover.popdown()
+
+        # Wait until the menu popover has released its input grab.
+        GLib.idle_add(self._request_close_after_menu)
+
+    def _request_close_after_menu(self) -> bool:
         self._request_destructive_action("close")
+        return GLib.SOURCE_REMOVE
 
     def _on_close_request(
         self,
@@ -1234,9 +1349,14 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self,
         action: str,
     ) -> None:
+        if self.destructive_dialog_open:
+            return
+
         if not self.modified:
             self._execute_pending_action(action)
             return
+
+        self.destructive_dialog_open = True
 
         dialog = Gtk.AlertDialog()
         dialog.set_message(
@@ -1269,6 +1389,8 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         result: Gio.AsyncResult,
         action: object,
     ) -> None:
+        self.destructive_dialog_open = False
+
         try:
             choice = dialog.choose_finish(result)
         except GLib.Error:
@@ -1312,6 +1434,12 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         elif action == "open":
             self._show_open_dialog()
         elif action == "close":
+            # The user has already confirmed closing. Disconnect the
+            # close-request handler so GTK cannot ask a second time.
+            if self.close_request_handler_id is not None:
+                self.disconnect(self.close_request_handler_id)
+                self.close_request_handler_id = None
+
             self.destroy()
 
     def _create_new_trip(self) -> None:

@@ -299,6 +299,7 @@ def test_trip_saves_and_loads_trip_settings(
         name="Lange reis",
         trip_settings=TripSettings(
             planned_duration_days=75,
+            planned_start_date="2026-09-14",
             shift_following_dates=False,
         ),
     )
@@ -307,6 +308,10 @@ def test_trip_saves_and_loads_trip_settings(
     loaded = Trip.load(path)
 
     assert loaded.trip_settings.planned_duration_days == 75
+    assert (
+        loaded.trip_settings.planned_start_date
+        == "2026-09-14"
+    )
     assert loaded.trip_settings.shift_following_dates is False
 
 
