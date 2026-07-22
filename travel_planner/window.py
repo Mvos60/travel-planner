@@ -15,6 +15,10 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gio, GLib, Gtk, Pango, WebKit
 
 from travel_planner.planning_engine import plan_trip
+from travel_planner.route_metrics import (
+    calculate_route_distance_km,
+    format_distance_km,
+)
 from travel_planner.context import TravelPlannerContext
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
@@ -956,31 +960,48 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
     def _build_custom_preferences(self) -> None:
         preferences = self.trip.travel_preferences
+        capabilities = self.route_service.capabilities
 
         options = (
             (
                 "Avoid highways",
                 "avoid_highways",
                 preferences.avoid_highways,
+                capabilities.supports_avoid_highways,
             ),
             (
                 "Avoid toll roads",
                 "avoid_tolls",
                 preferences.avoid_tolls,
+                capabilities.supports_avoid_tolls,
             ),
             (
                 "Avoid ferries",
                 "avoid_ferries",
                 preferences.avoid_ferries,
+                capabilities.supports_avoid_ferries,
             ),
         )
 
         self.syncing_preferences = True
 
         try:
-            for label, attribute_name, active in options:
+            for (
+                label,
+                attribute_name,
+                active,
+                supported,
+            ) in options:
                 checkbox = Gtk.CheckButton(label=label)
                 checkbox.set_active(active)
+                checkbox.set_sensitive(supported)
+
+                if not supported:
+                    checkbox.set_tooltip_text(
+                        "Niet ondersteund door de huidige "
+                        "routeprovider."
+                    )
+
                 checkbox.connect(
                     "toggled",
                     self._on_travel_preference_toggled,
@@ -1013,7 +1034,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self.modified = True
         self._update_window_title()
-        self._refresh_map()
+        self._refresh_interface()
 
     def _on_route_profile_changed(
         self,
@@ -1036,8 +1057,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.modified = True
 
         self._update_window_title()
-        self._refresh_preferences_panel()
-        self._refresh_map()
+        self._refresh_interface()
 
     def _on_avoid_motorways_toggled(
         self,
@@ -1076,11 +1096,40 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.avoid_motorways_check.set_active(
             self.trip.avoid_motorways
         )
+        self.avoid_motorways_check.set_sensitive(
+            self.route_service.capabilities.supports_avoid_highways
+        )
+
+        if self.route_service.capabilities.supports_avoid_highways:
+            self.avoid_motorways_check.set_tooltip_text(None)
+        else:
+            self.avoid_motorways_check.set_tooltip_text(
+                "Niet ondersteund door de huidige routeprovider."
+            )
+
+        route_coordinates = (
+            self._calculate_route_coordinates()
+        )
+        route_distance_km = calculate_route_distance_km(
+            route_coordinates
+        )
+
+        summary_parts = [
+            f"{len(self.trip.stops)} stops",
+            f"{self.trip.total_nights} nachten",
+        ]
+
+        if len(self.trip.stops) >= 2:
+            summary_parts.append(
+                format_distance_km(route_distance_km)
+            )
+
+        summary_parts.append(
+            self.trip.planning_summary
+        )
 
         self.summary_label.set_text(
-            f"{len(self.trip.stops)} stops  •  "
-            f"{self.trip.total_nights} nachten  •  "
-            f"{self.trip.planning_summary}"
+            "  •  ".join(summary_parts)
         )
 
         child = self.stop_list.get_first_child()
@@ -1201,9 +1250,28 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.move_down_button.set_sensitive(False)
         self.edit_button.set_sensitive(False)
         self.delete_button.set_sensitive(False)
-        self._refresh_map()
+        self._refresh_map(
+            route_coordinates=route_coordinates
+        )
 
-    def _refresh_map(self) -> None:
+    def _calculate_route_coordinates(
+        self,
+    ) -> list[dict]:
+        """Return the route geometry for the current trip."""
+
+        return [
+            coordinate.to_dict()
+            for coordinate in self.route_service.calculate_route(
+                self.trip.stops,
+                profile=self.trip.routing_profile,
+            )
+        ]
+
+    def _refresh_map(
+        self,
+        *,
+        route_coordinates: list[dict] | None = None,
+    ) -> None:
         stops = [
             {
                 "stop_id": stop.stop_id,
@@ -1220,13 +1288,10 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             for stop in self.trip.stops
         ]
 
-        route_coordinates = [
-            coordinate.to_dict()
-            for coordinate in self.route_service.calculate_route(
-                self.trip.stops,
-                profile=self.trip.routing_profile,
+        if route_coordinates is None:
+            route_coordinates = (
+                self._calculate_route_coordinates()
             )
-        ]
 
         script = (
             f"window.setStops({json.dumps(stops)});"

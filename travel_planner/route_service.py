@@ -28,11 +28,23 @@ class RouteCoordinate:
         }
 
 
+@dataclass(frozen=True)
+class RouteProviderCapabilities:
+    """Features supported by one route provider."""
+
+    supports_avoid_highways: bool = False
+    supports_avoid_tolls: bool = False
+    supports_avoid_ferries: bool = False
+    supports_vehicle_dimensions: bool = False
+
+
 class RouteProviderError(RuntimeError):
     """Raised when a route provider cannot calculate a route."""
 
 
 class RouteProvider(Protocol):
+    capabilities: RouteProviderCapabilities
+
     def calculate_route(
         self,
         stops: Sequence[Stop],
@@ -42,6 +54,8 @@ class RouteProvider(Protocol):
 
 class DirectRouteProvider:
     """Returns direct lines between the supplied stops."""
+
+    capabilities = RouteProviderCapabilities()
 
     def calculate_route(
         self,
@@ -58,6 +72,13 @@ class DirectRouteProvider:
 
 class OSRMRouteProvider:
     """Calculates a driving route using an OSRM HTTP server."""
+
+    capabilities = RouteProviderCapabilities(
+        supports_avoid_highways=False,
+        supports_avoid_tolls=False,
+        supports_avoid_ferries=False,
+        supports_vehicle_dimensions=False,
+    )
 
     def __init__(
         self,
@@ -236,6 +257,12 @@ class RouteService:
         self.fallback_provider = (
             fallback_provider or DirectRouteProvider()
         )
+
+    @property
+    def capabilities(self) -> RouteProviderCapabilities:
+        """Return the capabilities of the active provider."""
+
+        return self.provider.capabilities
 
     def calculate_route(
         self,
