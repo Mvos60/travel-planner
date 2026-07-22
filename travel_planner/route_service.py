@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
+from travel_planner.travel_preferences import TravelPreferences
 
 
 DEFAULT_OSRM_BASE_URL = "https://router.project-osrm.org"
@@ -26,6 +27,36 @@ class RouteCoordinate:
             "latitude": self.latitude,
             "longitude": self.longitude,
         }
+
+
+@dataclass(frozen=True)
+class RoutingRequest:
+    """Complete input for one routing calculation."""
+
+    stops: tuple[Stop, ...]
+    profile: RoutingProfile = RoutingProfile.CAMPER
+    preferences: TravelPreferences = field(
+        default_factory=TravelPreferences
+    )
+
+    @classmethod
+    def create(
+        cls,
+        stops: Sequence[Stop],
+        profile: RoutingProfile = RoutingProfile.CAMPER,
+        preferences: TravelPreferences | None = None,
+    ) -> "RoutingRequest":
+        """Create an immutable request from application input."""
+
+        return cls(
+            stops=tuple(stops),
+            profile=profile,
+            preferences=(
+                preferences
+                if preferences is not None
+                else TravelPreferences()
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -47,9 +78,9 @@ class RouteProvider(Protocol):
 
     def calculate_route(
         self,
-        stops: Sequence[Stop],
+        request: RoutingRequest,
     ) -> list[RouteCoordinate]:
-        """Calculate route geometry for the supplied stops."""
+        """Calculate route geometry for the supplied request."""
 
 
 class DirectRouteProvider:
@@ -59,14 +90,14 @@ class DirectRouteProvider:
 
     def calculate_route(
         self,
-        stops: Sequence[Stop],
+        request: RoutingRequest,
     ) -> list[RouteCoordinate]:
         return [
             RouteCoordinate(
                 latitude=stop.latitude,
                 longitude=stop.longitude,
             )
-            for stop in stops
+            for stop in request.stops
         ]
 
 
@@ -94,12 +125,14 @@ class OSRMRouteProvider:
 
     def calculate_route(
         self,
-        stops: Sequence[Stop],
+        request: RoutingRequest,
     ) -> list[RouteCoordinate]:
-        if len(stops) < 2:
-            return DirectRouteProvider().calculate_route(stops)
+        stops = request.stops
 
-        request = Request(
+        if len(stops) < 2:
+            return DirectRouteProvider().calculate_route(request)
+
+        http_request = Request(
             self._build_route_url(stops),
             headers={
                 "User-Agent": (
@@ -112,7 +145,7 @@ class OSRMRouteProvider:
 
         try:
             response = self.opener(
-                request,
+                http_request,
                 timeout=self.timeout_seconds,
             )
 
@@ -258,7 +291,10 @@ class RouteService:
             fallback_provider or DirectRouteProvider()
         )
 
-    def set_provider(self, provider: RouteProvider) -> None:
+    def set_provider(
+        self,
+        provider: RouteProvider,
+    ) -> None:
         self.provider = provider
 
     @property
@@ -271,12 +307,15 @@ class RouteService:
         self,
         stops: Sequence[Stop],
         profile: RoutingProfile = RoutingProfile.CAMPER,
+        preferences: TravelPreferences | None = None,
     ) -> list[RouteCoordinate]:
-        # Sprint 009.0 establishes the routing-profile contract.
-        # Providers will interpret the profile in later sprints.
-        _ = profile
+        request = RoutingRequest.create(
+            stops=stops,
+            profile=profile,
+            preferences=preferences,
+        )
 
         try:
-            return self.provider.calculate_route(stops)
+            return self.provider.calculate_route(request)
         except RouteProviderError:
-            return self.fallback_provider.calculate_route(stops)
+            return self.fallback_provider.calculate_route(request)

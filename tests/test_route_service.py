@@ -14,6 +14,7 @@ from travel_planner.route_service import (
     RouteCoordinate,
     RouteProviderError,
     RouteService,
+    RoutingRequest,
 )
 from travel_planner.stop import Stop
 
@@ -34,7 +35,7 @@ class FakeResponse(io.BytesIO):
 class FailingProvider:
     def calculate_route(
         self,
-        stops: Sequence[Stop],
+        request: RoutingRequest,
     ) -> list[RouteCoordinate]:
         raise RouteProviderError("Provider niet beschikbaar")
 
@@ -65,13 +66,13 @@ def make_stops() -> list[Stop]:
 def test_direct_provider_returns_no_coordinates_for_empty_trip() -> None:
     provider = DirectRouteProvider()
 
-    assert provider.calculate_route([]) == []
+    assert provider.calculate_route(RoutingRequest.create([])) == []
 
 
 def test_direct_provider_preserves_stop_order() -> None:
     provider = DirectRouteProvider()
 
-    route = provider.calculate_route(make_stops())
+    route = provider.calculate_route(RoutingRequest.create(make_stops()))
 
     assert route == [
         RouteCoordinate(44.7350, 4.6000),
@@ -132,7 +133,7 @@ def test_osrm_provider_builds_driving_request() -> None:
         opener=opener,
     )
 
-    route = provider.calculate_route(make_stops()[:2])
+    route = provider.calculate_route(RoutingRequest.create(make_stops()[:2]))
 
     assert captured_request is not None
     assert captured_timeout == 4.5
@@ -163,7 +164,7 @@ def test_osrm_provider_does_not_call_server_for_one_stop() -> None:
 
     provider = OSRMRouteProvider(opener=opener)
 
-    route = provider.calculate_route(make_stops()[:1])
+    route = provider.calculate_route(RoutingRequest.create(make_stops()[:1]))
 
     assert called is False
     assert route == [
@@ -191,7 +192,7 @@ def test_osrm_provider_rejects_no_route_response() -> None:
         RouteProviderError,
         match="Impossible route",
     ):
-        provider.calculate_route(make_stops()[:2])
+        provider.calculate_route(RoutingRequest.create(make_stops()[:2]))
 
 
 def test_osrm_provider_wraps_network_error() -> None:
@@ -207,7 +208,7 @@ def test_osrm_provider_wraps_network_error() -> None:
         RouteProviderError,
         match="OSRM-route kon niet worden opgehaald",
     ):
-        provider.calculate_route(make_stops()[:2])
+        provider.calculate_route(RoutingRequest.create(make_stops()[:2]))
 
 
 def test_route_service_falls_back_to_direct_route() -> None:
@@ -260,7 +261,7 @@ def test_public_osrm_request_does_not_exclude_motorways() -> None:
         avoid_motorways=True,
     )
 
-    provider.calculate_route(make_stops()[:2])
+    provider.calculate_route(RoutingRequest.create(make_stops()[:2]))
 
     assert captured_request is not None
     assert "exclude=" not in captured_request.full_url

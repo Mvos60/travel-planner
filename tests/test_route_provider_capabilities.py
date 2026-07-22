@@ -44,7 +44,7 @@ def test_route_service_exposes_custom_provider_capabilities():
             supports_avoid_tolls=True,
         )
 
-        def calculate_route(self, stops):
+        def calculate_route(self, request):
             return []
 
     service = RouteService(provider=CustomProvider())
