@@ -5,6 +5,7 @@ from travel_planner.route_provider_manager import (
 )
 from travel_planner.route_service import (
     DirectRouteProvider,
+    OpenRouteServiceProvider,
     OSRMRouteProvider,
 )
 
@@ -24,6 +25,7 @@ def test_manager_lists_available_providers():
 
     assert manager.available_provider_ids() == [
         "osrm-demo",
+        "openrouteservice",
     ]
 
 
@@ -69,3 +71,29 @@ def test_manager_rejects_display_name_for_unknown_provider():
 
     with pytest.raises(KeyError):
         manager.provider_display_name("unknown")
+
+
+def test_manager_can_select_openrouteservice():
+    manager = RouteProviderManager()
+
+    manager.set_active_provider("openrouteservice")
+
+    assert manager.active_provider_id == (
+        "openrouteservice"
+    )
+    assert isinstance(
+        manager.active_provider,
+        OpenRouteServiceProvider,
+    )
+
+
+def test_manager_returns_openrouteservice_display_name():
+    manager = RouteProviderManager()
+
+    assert (
+        manager.provider_display_name(
+            "openrouteservice"
+        )
+        == "OpenRouteService"
+    )
+

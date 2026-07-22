@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -14,6 +15,7 @@ from travel_planner.travel_preferences import TravelPreferences
 
 
 DEFAULT_OSRM_BASE_URL = "https://router.project-osrm.org"
+DEFAULT_ORS_BASE_URL = "https://api.openrouteservice.org"
 DEFAULT_TIMEOUT_SECONDS = 10.0
 DEFAULT_USER_AGENT = (
     "TravelPlanner/0.1 "
@@ -354,6 +356,204 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
             )
 
         return result
+
+
+class OpenRouteServiceProvider(BaseHttpRouteProvider):
+    """Calculate driving routes using OpenRouteService."""
+
+    capabilities = RouteProviderCapabilities(
+        supports_avoid_highways=True,
+        supports_avoid_tolls=True,
+        supports_avoid_ferries=True,
+        supports_vehicle_dimensions=False,
+    )
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str = DEFAULT_ORS_BASE_URL,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        opener: Callable[..., object] = urlopen,
+    ) -> None:
+        super().__init__(
+            timeout_seconds=timeout_seconds,
+            opener=opener,
+        )
+
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else os.environ.get(
+                "OPENROUTESERVICE_API_KEY",
+                "",
+            )
+        ).strip()
+
+        self.base_url = base_url.rstrip("/")
+
+    def calculate_route(
+        self,
+        request: RoutingRequest,
+    ) -> list[RouteCoordinate]:
+        if len(request.stops) < 2:
+            return DirectRouteProvider().calculate_route(request)
+
+        if not self.api_key:
+            raise RouteProviderError(
+                "OpenRouteService API-key ontbreekt. "
+                "Stel OPENROUTESERVICE_API_KEY in."
+            )
+
+        http_request = self._build_json_request(
+            self._build_route_url(),
+            method="POST",
+            headers={
+                "Authorization": self.api_key,
+            },
+            payload=self._build_payload(request),
+        )
+
+        payload = self._load_json_response(
+            http_request,
+            provider_name="OpenRouteService",
+        )
+
+        return self._parse_response(payload)
+
+    def _build_route_url(self) -> str:
+        return (
+            f"{self.base_url}/v2/directions/"
+            "driving-car/geojson"
+        )
+
+    def _build_payload(
+        self,
+        request: RoutingRequest,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "coordinates": [
+                [
+                    stop.longitude,
+                    stop.latitude,
+                ]
+                for stop in request.stops
+            ],
+        }
+
+        avoid_features: list[str] = []
+
+        if request.preferences.avoid_highways:
+            avoid_features.append("highways")
+
+        if request.preferences.avoid_tolls:
+            avoid_features.append("tollways")
+
+        if request.preferences.avoid_ferries:
+            avoid_features.append("ferries")
+
+        if avoid_features:
+            payload["options"] = {
+                "avoid_features": avoid_features,
+            }
+
+        return payload
+
+    def _parse_response(
+        self,
+        payload: object,
+    ) -> list[RouteCoordinate]:
+        if not isinstance(payload, dict):
+            raise RouteProviderError(
+                "OpenRouteService gaf geen geldig antwoord terug."
+            )
+
+        features = payload.get("features")
+
+        if not isinstance(features, list) or not features:
+            message = self._extract_error_message(payload)
+
+            raise RouteProviderError(
+                "OpenRouteService kon geen route berekenen: "
+                f"{message}"
+            )
+
+        first_feature = features[0]
+
+        if not isinstance(first_feature, dict):
+            raise RouteProviderError(
+                "OpenRouteService gaf ongeldige routegegevens terug."
+            )
+
+        geometry = first_feature.get("geometry")
+
+        if not isinstance(geometry, dict):
+            raise RouteProviderError(
+                "OpenRouteService-route bevat geen geometrie."
+            )
+
+        coordinates = geometry.get("coordinates")
+
+        if not isinstance(coordinates, list):
+            raise RouteProviderError(
+                "OpenRouteService-route bevat geen coördinaten."
+            )
+
+        result: list[RouteCoordinate] = []
+
+        for coordinate in coordinates:
+            if (
+                not isinstance(coordinate, list)
+                or len(coordinate) < 2
+                or not isinstance(
+                    coordinate[0],
+                    (int, float),
+                )
+                or not isinstance(
+                    coordinate[1],
+                    (int, float),
+                )
+            ):
+                raise RouteProviderError(
+                    "OpenRouteService-route bevat een "
+                    "ongeldige coördinaat."
+                )
+
+            result.append(
+                RouteCoordinate(
+                    latitude=float(coordinate[1]),
+                    longitude=float(coordinate[0]),
+                )
+            )
+
+        if len(result) < 2:
+            raise RouteProviderError(
+                "OpenRouteService-route bevat onvoldoende "
+                "coördinaten."
+            )
+
+        return result
+
+    def _extract_error_message(
+        self,
+        payload: dict[str, object],
+    ) -> str:
+        error = payload.get("error")
+
+        if isinstance(error, dict):
+            message = error.get("message")
+
+            if isinstance(message, str):
+                return message
+
+        if isinstance(error, str):
+            return error
+
+        message = payload.get("message")
+
+        if isinstance(message, str):
+            return message
+
+        return "geen route ontvangen"
 
 
 class RouteService:

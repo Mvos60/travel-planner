@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from travel_planner.route_service import (
     DirectRouteProvider,
+    OpenRouteServiceProvider,
     OSRMRouteProvider,
     RouteProvider,
 )
@@ -13,10 +14,12 @@ class RouteProviderManager:
     def __init__(self) -> None:
         self._providers: dict[str, RouteProvider] = {
             "osrm-demo": OSRMRouteProvider(),
+            "openrouteservice": OpenRouteServiceProvider(),
         }
 
         self._provider_names: dict[str, str] = {
             "osrm-demo": "OSRM Demo",
+            "openrouteservice": "OpenRouteService",
         }
 
         self._active_provider_id = "osrm-demo"
