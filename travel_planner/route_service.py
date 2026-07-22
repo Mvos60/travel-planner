@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -15,6 +15,10 @@ from travel_planner.travel_preferences import TravelPreferences
 
 DEFAULT_OSRM_BASE_URL = "https://router.project-osrm.org"
 DEFAULT_TIMEOUT_SECONDS = 10.0
+DEFAULT_USER_AGENT = (
+    "TravelPlanner/0.1 "
+    "(desktop route-planning application)"
+)
 
 
 @dataclass(frozen=True)
@@ -101,7 +105,98 @@ class DirectRouteProvider:
         ]
 
 
-class OSRMRouteProvider:
+class BaseHttpRouteProvider:
+    """
+    Shared HTTP and JSON support for online route providers.
+
+    Concrete providers remain responsible for:
+    - choosing the endpoint;
+    - constructing the request data;
+    - interpreting the provider response.
+    """
+
+    def __init__(
+        self,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        opener: Callable[..., object] = urlopen,
+    ) -> None:
+        self.timeout_seconds = timeout_seconds
+        self.opener = opener
+
+    def _build_json_request(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        headers: Mapping[str, str] | None = None,
+        payload: object | None = None,
+    ) -> Request:
+        """
+        Build an HTTP request that accepts JSON.
+
+        When a payload is supplied, it is serialized as JSON and
+        the Content-Type header is added automatically.
+        """
+
+        request_headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Accept": "application/json",
+        }
+
+        if headers is not None:
+            request_headers.update(headers)
+
+        request_data: bytes | None = None
+
+        if payload is not None:
+            request_data = json.dumps(payload).encode("utf-8")
+            request_headers.setdefault(
+                "Content-Type",
+                "application/json",
+            )
+
+        return Request(
+            url=url,
+            data=request_data,
+            headers=request_headers,
+            method=method,
+        )
+
+    def _load_json_response(
+        self,
+        request: Request,
+        *,
+        provider_name: str,
+    ) -> Any:
+        """
+        Execute an HTTP request and decode its JSON response.
+
+        Network, timeout, operating-system and malformed-JSON
+        errors are converted to a consistent RouteProviderError.
+        """
+
+        try:
+            response = self.opener(
+                request,
+                timeout=self.timeout_seconds,
+            )
+
+            with response:
+                return json.load(response)
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            OSError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise RouteProviderError(
+                f"{provider_name}-route kon niet worden "
+                f"opgehaald: {exc}"
+            ) from exc
+
+
+class OSRMRouteProvider(BaseHttpRouteProvider):
     """Calculates a driving route using an OSRM HTTP server."""
 
     capabilities = RouteProviderCapabilities(
@@ -118,9 +213,12 @@ class OSRMRouteProvider:
         opener: Callable[..., object] = urlopen,
         avoid_motorways: bool = False,
     ) -> None:
+        super().__init__(
+            timeout_seconds=timeout_seconds,
+            opener=opener,
+        )
+
         self.base_url = base_url.rstrip("/")
-        self.timeout_seconds = timeout_seconds
-        self.opener = opener
         self.avoid_motorways = avoid_motorways
 
     def calculate_route(
@@ -132,35 +230,14 @@ class OSRMRouteProvider:
         if len(stops) < 2:
             return DirectRouteProvider().calculate_route(request)
 
-        http_request = Request(
-            self._build_route_url(stops),
-            headers={
-                "User-Agent": (
-                    "TravelPlanner/0.1 "
-                    "(desktop route-planning application)"
-                ),
-                "Accept": "application/json",
-            },
+        http_request = self._build_json_request(
+            self._build_route_url(stops)
         )
 
-        try:
-            response = self.opener(
-                http_request,
-                timeout=self.timeout_seconds,
-            )
-
-            with response:
-                payload = json.load(response)
-        except (
-            HTTPError,
-            URLError,
-            TimeoutError,
-            OSError,
-            json.JSONDecodeError,
-        ) as exc:
-            raise RouteProviderError(
-                f"OSRM-route kon niet worden opgehaald: {exc}"
-            ) from exc
+        payload = self._load_json_response(
+            http_request,
+            provider_name="OSRM",
+        )
 
         return self._parse_response(payload)
 
@@ -248,8 +325,14 @@ class OSRMRouteProvider:
             if (
                 not isinstance(coordinate, list)
                 or len(coordinate) < 2
-                or not isinstance(coordinate[0], (int, float))
-                or not isinstance(coordinate[1], (int, float))
+                or not isinstance(
+                    coordinate[0],
+                    (int, float),
+                )
+                or not isinstance(
+                    coordinate[1],
+                    (int, float),
+                )
             ):
                 raise RouteProviderError(
                     "OSRM-route bevat een ongeldige coördinaat."
