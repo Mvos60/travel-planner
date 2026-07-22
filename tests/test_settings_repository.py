@@ -42,3 +42,75 @@ def test_settings_round_trip(
     restored = repo.load()
 
     assert restored == original
+
+
+def test_routing_settings_round_trip(
+    tmp_path,
+) -> None:
+    repo = SettingsRepository(
+        tmp_path / "settings.json"
+    )
+
+    original = Settings(
+        route_provider="openrouteservice",
+        openrouteservice_api_key="test-secret-key",
+    )
+
+    repo.save(original)
+
+    restored = repo.load()
+
+    assert restored.route_provider == "openrouteservice"
+    assert (
+        restored.openrouteservice_api_key
+        == "test-secret-key"
+    )
+
+
+def test_legacy_settings_use_default_route_provider(
+    tmp_path,
+) -> None:
+    settings_path = tmp_path / "settings.json"
+
+    settings_path.write_text(
+        """{
+  "version": 1,
+  "settings": {
+    "font_scale": 1.0,
+    "map_provider": "osm"
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    restored = SettingsRepository(
+        settings_path
+    ).load()
+
+    assert restored.route_provider == "osrm-demo"
+    assert restored.openrouteservice_api_key == ""
+
+
+def test_unknown_saved_route_provider_uses_default(
+    tmp_path,
+) -> None:
+    settings_path = tmp_path / "settings.json"
+
+    settings_path.write_text(
+        """{
+  "version": 1,
+  "settings": {
+    "route_provider": "unknown-provider"
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    restored = SettingsRepository(
+        settings_path
+    ).load()
+
+    assert restored.route_provider == "osrm-demo"
+

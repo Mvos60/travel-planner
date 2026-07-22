@@ -97,3 +97,61 @@ def test_manager_returns_openrouteservice_display_name():
         == "OpenRouteService"
     )
 
+
+def test_manager_restores_selected_provider():
+    manager = RouteProviderManager(
+        active_provider_id="openrouteservice"
+    )
+
+    assert (
+        manager.active_provider_id
+        == "openrouteservice"
+    )
+
+    assert isinstance(
+        manager.active_provider,
+        OpenRouteServiceProvider,
+    )
+
+
+def test_manager_uses_default_for_unknown_initial_provider():
+    manager = RouteProviderManager(
+        active_provider_id="unknown-provider"
+    )
+
+    assert manager.active_provider_id == "osrm-demo"
+
+
+def test_manager_passes_saved_api_key_to_ors():
+    manager = RouteProviderManager(
+        openrouteservice_api_key="saved-api-key"
+    )
+
+    provider = manager.provider(
+        "openrouteservice"
+    )
+
+    assert isinstance(
+        provider,
+        OpenRouteServiceProvider,
+    )
+    assert provider.api_key == "saved-api-key"
+
+
+def test_manager_updates_openrouteservice_api_key():
+    manager = RouteProviderManager()
+
+    manager.set_openrouteservice_api_key(
+        "new-api-key"
+    )
+
+    provider = manager.provider(
+        "openrouteservice"
+    )
+
+    assert isinstance(
+        provider,
+        OpenRouteServiceProvider,
+    )
+    assert provider.api_key == "new-api-key"
+

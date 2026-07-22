@@ -1000,6 +1000,11 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         manager.set_active_provider(provider_id)
 
+        self.context.settings.route_provider = provider_id
+        self.context.settings_repository.save(
+            self.context.settings
+        )
+
         self.route_service.set_provider(
             manager.active_provider
         )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -17,6 +17,9 @@ class Settings:
 
     map_provider: str = "osm"
 
+    route_provider: str = "osrm-demo"
+    openrouteservice_api_key: str = ""
+
     autosave_minutes: int = 5
 
     def to_dict(self) -> dict[str, Any]:
@@ -27,6 +30,24 @@ class Settings:
         cls,
         data: dict[str, Any],
     ) -> "Settings":
+        route_provider = str(
+            data.get(
+                "route_provider",
+                "osrm-demo",
+            )
+        )
+
+        if route_provider not in {
+            "osrm-demo",
+            "openrouteservice",
+        }:
+            route_provider = "osrm-demo"
+
+        api_key_value = data.get(
+            "openrouteservice_api_key",
+            "",
+        )
+
         return cls(
             font_scale=float(
                 data.get("font_scale", 1.0)
@@ -45,6 +66,12 @@ class Settings:
                     "map_provider",
                     "osm",
                 )
+            ),
+            route_provider=route_provider,
+            openrouteservice_api_key=(
+                ""
+                if api_key_value is None
+                else str(api_key_value).strip()
             ),
             autosave_minutes=int(
                 data.get(

@@ -8,13 +8,29 @@ from travel_planner.route_service import (
 )
 
 
+DEFAULT_ROUTE_PROVIDER_ID = "osrm-demo"
+
+
 class RouteProviderManager:
     """Maintains the available routing providers."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        active_provider_id: str = DEFAULT_ROUTE_PROVIDER_ID,
+        openrouteservice_api_key: str | None = None,
+    ) -> None:
+        api_key = (
+            openrouteservice_api_key.strip()
+            if openrouteservice_api_key
+            else None
+        )
+
         self._providers: dict[str, RouteProvider] = {
             "osrm-demo": OSRMRouteProvider(),
-            "openrouteservice": OpenRouteServiceProvider(),
+            "openrouteservice": OpenRouteServiceProvider(
+                api_key=api_key
+            ),
         }
 
         self._provider_names: dict[str, str] = {
@@ -22,7 +38,11 @@ class RouteProviderManager:
             "openrouteservice": "OpenRouteService",
         }
 
-        self._active_provider_id = "osrm-demo"
+        self._active_provider_id = (
+            active_provider_id
+            if active_provider_id in self._providers
+            else DEFAULT_ROUTE_PROVIDER_ID
+        )
 
     @property
     def active_provider(self) -> RouteProvider:
@@ -48,6 +68,17 @@ class RouteProviderManager:
 
         return self._provider_names[provider_id]
 
+    def provider(
+        self,
+        provider_id: str,
+    ) -> RouteProvider:
+        """Return one registered provider."""
+
+        if provider_id not in self._providers:
+            raise KeyError(provider_id)
+
+        return self._providers[provider_id]
+
     def set_active_provider(
         self,
         provider_id: str,
@@ -58,6 +89,29 @@ class RouteProviderManager:
             raise KeyError(provider_id)
 
         self._active_provider_id = provider_id
+
+    def set_openrouteservice_api_key(
+        self,
+        api_key: str | None,
+    ) -> None:
+        """Update the API-key used by OpenRouteService."""
+
+        provider = self.provider("openrouteservice")
+
+        if not isinstance(
+            provider,
+            OpenRouteServiceProvider,
+        ):
+            raise TypeError(
+                "OpenRouteService-provider heeft een "
+                "onverwacht type."
+            )
+
+        provider.api_key = (
+            api_key.strip()
+            if api_key
+            else ""
+        )
 
     @property
     def fallback_provider(self) -> RouteProvider:

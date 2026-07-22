@@ -66,7 +66,12 @@ class TravelPlannerContext:
         vehicle_profile_repository.load()
         stop_repository.load()
 
-        route_provider_manager = RouteProviderManager()
+        route_provider_manager = RouteProviderManager(
+            active_provider_id=settings.route_provider,
+            openrouteservice_api_key=(
+                settings.openrouteservice_api_key
+            ),
+        )
 
         route_service = RouteService(
             provider=(
