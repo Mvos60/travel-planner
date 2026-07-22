@@ -92,6 +92,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.edit_button = Gtk.Button(label="Bewerken")
         self.delete_button = Gtk.Button(label="Verwijderen")
         self.vehicle_profile_combo = Gtk.ComboBoxText()
+        self.route_provider_combo = Gtk.ComboBoxText()
         self.route_profile_combo = Gtk.ComboBoxText()
 
         self.preferences_box = Gtk.Box(
@@ -111,6 +112,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             )
 
         self.syncing_vehicle_profile = False
+        self.syncing_route_provider = False
         self.syncing_route_profile = False
         self.syncing_preferences = False
 
@@ -125,6 +127,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._build_interface()
         self._refresh_vehicle_profile_selector()
+        self._refresh_route_provider_selector()
         self._load_map()
         self._update_window_title()
 
@@ -298,6 +301,21 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         sidebar.append(vehicle_label)
         sidebar.append(self.vehicle_profile_combo)
+
+        route_provider_label = Gtk.Label(
+            label="Routeprovider"
+        )
+        route_provider_label.set_xalign(0)
+        route_provider_label.set_margin_top(8)
+        sidebar.append(route_provider_label)
+
+        self.route_provider_combo.set_hexpand(True)
+        self.route_provider_combo.set_margin_bottom(8)
+        self.route_provider_combo.connect(
+            "changed",
+            self._on_route_provider_changed,
+        )
+        sidebar.append(self.route_provider_combo)
 
         profile_label = Gtk.Label(
             label="Routeprofiel"
@@ -939,6 +957,60 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.trip.vehicle_profile_id = vehicle_profile_id
         self._mark_modified()
 
+    def _refresh_route_provider_selector(self) -> None:
+        """Synchronize the provider selector with the manager."""
+
+        manager = self.context.route_provider_manager
+
+        self.syncing_route_provider = True
+
+        try:
+            self.route_provider_combo.remove_all()
+
+            for provider_id in manager.available_provider_ids():
+                self.route_provider_combo.append(
+                    provider_id,
+                    manager.provider_display_name(provider_id),
+                )
+
+            self.route_provider_combo.set_active_id(
+                manager.active_provider_id
+            )
+        finally:
+            self.syncing_route_provider = False
+
+    def _on_route_provider_changed(
+        self,
+        combo: Gtk.ComboBoxText,
+    ) -> None:
+        """Switch the active provider for this application session."""
+
+        if self.syncing_route_provider:
+            return
+
+        provider_id = combo.get_active_id()
+
+        if provider_id is None:
+            return
+
+        manager = self.context.route_provider_manager
+
+        if manager.active_provider_id == provider_id:
+            return
+
+        manager.set_active_provider(provider_id)
+
+        self.route_service.set_provider(
+            manager.active_provider
+        )
+
+        # Temporary compatibility reference. This remains safe while
+        # OSRM Demo is the only registered provider.
+        self.osrm_route_provider = manager.active_provider
+
+        self._refresh_preferences_panel()
+        self._refresh_map()
+
     def _clear_preferences_panel(self) -> None:
         child = self.preferences_box.get_first_child()
 
@@ -1078,6 +1150,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self._refresh_map()
 
     def _refresh_interface(self) -> None:
+        self._refresh_route_provider_selector()
         self.syncing_route_profile = True
 
         try:

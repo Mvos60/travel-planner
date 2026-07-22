@@ -53,3 +53,19 @@ def test_setting_active_provider_keeps_registered_provider():
         manager.active_provider,
         OSRMRouteProvider,
     )
+
+
+def test_manager_returns_provider_display_name():
+    manager = RouteProviderManager()
+
+    assert (
+        manager.provider_display_name("osrm-demo")
+        == "OSRM Demo"
+    )
+
+
+def test_manager_rejects_display_name_for_unknown_provider():
+    manager = RouteProviderManager()
+
+    with pytest.raises(KeyError):
+        manager.provider_display_name("unknown")
