@@ -88,6 +88,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.stop_list = Gtk.ListBox()
         self.summary_label = Gtk.Label()
         self.trip_summary_value_labels: dict[str, Gtk.Label] = {}
+        self.route_info_value_labels: dict[str, Gtk.Label] = {}
         self.header_title = Gtk.Label()
         self.move_up_button = Gtk.Button(label="Omhoog")
         self.move_down_button = Gtk.Button(label="Omlaag")
@@ -398,8 +399,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         summary_rows = (
             ("stops", "Stops"),
             ("nights", "Overnachtingen"),
-            ("distance", "Totale afstand"),
-            ("duration", "Totale rijtijd"),
             ("days", "Reisduur"),
         )
 
@@ -430,6 +429,59 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.trip_summary_value_labels[key] = value_label
 
         sidebar.append(trip_summary_grid)
+
+        route_info_separator = Gtk.Separator(
+            orientation=Gtk.Orientation.HORIZONTAL,
+        )
+        route_info_separator.set_margin_top(8)
+        sidebar.append(route_info_separator)
+
+        route_info_title = Gtk.Label(label="Route")
+        route_info_title.set_xalign(0)
+        route_info_title.add_css_class("heading")
+        route_info_title.set_margin_top(4)
+        sidebar.append(route_info_title)
+
+        route_info_grid = Gtk.Grid(
+            column_spacing=12,
+            row_spacing=4,
+        )
+        route_info_grid.set_hexpand(True)
+
+        route_info_rows = (
+            ("distance", "Afstand"),
+            ("duration", "Rijtijd (provider)"),
+            ("provider", "Provider"),
+            ("profile", "Profiel"),
+        )
+
+        for row_index, (key, caption) in enumerate(
+            route_info_rows
+        ):
+            caption_label = Gtk.Label(label=caption)
+            caption_label.set_xalign(0)
+
+            value_label = Gtk.Label(label="—")
+            value_label.set_xalign(1)
+            value_label.set_hexpand(True)
+
+            route_info_grid.attach(
+                caption_label,
+                0,
+                row_index,
+                1,
+                1,
+            )
+            route_info_grid.attach(
+                value_label,
+                1,
+                row_index,
+                1,
+                1,
+            )
+            self.route_info_value_labels[key] = value_label
+
+        sidebar.append(route_info_grid)
 
         self.avoid_motorways_check.set_margin_top(4)
         self.avoid_motorways_check.set_margin_bottom(4)
@@ -2315,16 +2367,29 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             ),
         )
 
-        values = {
+        trip_values = {
             "stops": str(summary.stop_count),
             "nights": str(summary.total_nights),
-            "distance": summary.formatted_distance,
-            "duration": summary.formatted_duration,
             "days": summary.formatted_planned_days,
         }
 
-        for key, value in values.items():
+        for key, value in trip_values.items():
             self.trip_summary_value_labels[key].set_text(value)
+
+        manager = self.context.route_provider_manager
+        provider_name = manager.provider_display_name(
+            manager.active_provider_id
+        )
+
+        route_values = {
+            "distance": summary.formatted_distance,
+            "duration": summary.formatted_duration,
+            "provider": provider_name,
+            "profile": self.trip.routing_profile.display_name,
+        }
+
+        for key, value in route_values.items():
+            self.route_info_value_labels[key].set_text(value)
 
         return True
 
