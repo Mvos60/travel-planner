@@ -90,6 +90,33 @@ class RouteProviderManager:
 
         self._active_provider_id = provider_id
 
+    def test_provider_connection(
+        self,
+        provider_id: str,
+        *,
+        openrouteservice_api_key: str | None = None,
+    ) -> None:
+        """Test one provider without saving its settings."""
+
+        provider = self.provider(provider_id)
+
+        if isinstance(provider, OpenRouteServiceProvider):
+            previous_api_key = provider.api_key
+
+            try:
+                provider.api_key = (
+                    openrouteservice_api_key.strip()
+                    if openrouteservice_api_key
+                    else ""
+                )
+                provider.check_connection()
+            finally:
+                provider.api_key = previous_api_key
+
+            return
+
+        provider.check_connection()
+
     def set_openrouteservice_api_key(
         self,
         api_key: str | None,

@@ -88,6 +88,9 @@ class RouteProvider(Protocol):
     ) -> list[RouteCoordinate]:
         """Calculate route geometry for the supplied request."""
 
+    def check_connection(self) -> None:
+        """Verify that the route provider is reachable."""
+
 
 class DirectRouteProvider:
     """Returns direct lines between the supplied stops."""
@@ -105,6 +108,9 @@ class DirectRouteProvider:
             )
             for stop in request.stops
         ]
+
+    def check_connection(self) -> None:
+        """The direct provider does not require a network."""
 
 
 class BaseHttpRouteProvider:
@@ -242,6 +248,23 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
         )
 
         return self._parse_response(payload)
+
+    def check_connection(self) -> None:
+        """Test the public OSRM route service."""
+
+        url = (
+            f"{self.base_url}/route/v1/driving/"
+            "4.895168,52.370216;"
+            "4.899431,52.379189"
+            "?overview=full&geometries=geojson&steps=false"
+        )
+
+        payload = self._load_json_response(
+            self._build_json_request(url),
+            provider_name="OSRM",
+        )
+
+        self._parse_response(payload)
 
     def _build_route_url(
         self,
@@ -400,8 +423,7 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
 
         if not self.api_key:
             raise RouteProviderError(
-                "OpenRouteService API-key ontbreekt. "
-                "Stel OPENROUTESERVICE_API_KEY in."
+                "OpenRouteService API-key ontbreekt."
             )
 
         http_request = self._build_json_request(
@@ -419,6 +441,33 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
         )
 
         return self._parse_response(payload)
+
+    def check_connection(self) -> None:
+        """Test OpenRouteService and validate its API-key."""
+
+        if not self.api_key:
+            raise RouteProviderError(
+                "OpenRouteService API-key ontbreekt."
+            )
+
+        payload = self._load_json_response(
+            self._build_json_request(
+                self._build_route_url(),
+                method="POST",
+                headers={
+                    "Authorization": self.api_key,
+                },
+                payload={
+                    "coordinates": [
+                        [4.895168, 52.370216],
+                        [4.899431, 52.379189],
+                    ],
+                },
+            ),
+            provider_name="OpenRouteService",
+        )
+
+        self._parse_response(payload)
 
     def _build_route_url(self) -> str:
         return (
