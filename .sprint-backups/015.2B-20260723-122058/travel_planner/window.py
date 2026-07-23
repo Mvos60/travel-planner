@@ -181,7 +181,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         trip_settings_button.add_css_class("flat")
         trip_settings_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_trip_settings_clicked,
         )
         menu_box.append(trip_settings_button)
@@ -192,7 +191,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         provider_settings_button.add_css_class("flat")
         provider_settings_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_provider_settings_clicked,
         )
         menu_box.append(provider_settings_button)
@@ -203,7 +201,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         vehicles_button.add_css_class("flat")
         vehicles_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_vehicle_manager_clicked,
         )
         menu_box.append(vehicles_button)
@@ -214,7 +211,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         route_cache_button.add_css_class("flat")
         route_cache_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_route_cache_clicked,
         )
         menu_box.append(route_cache_button)
@@ -1487,32 +1483,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             None,
             None,
         )
-
-    def _on_menu_action_clicked(
-        self,
-        button: Gtk.Button,
-        callback: object,
-    ) -> None:
-        """Close the menu before opening its requested dialog."""
-
-        popover = button.get_ancestor(Gtk.Popover)
-
-        if popover is not None:
-            popover.popdown()
-
-        GLib.idle_add(
-            self._run_menu_action,
-            callback,
-            button,
-        )
-
-    def _run_menu_action(
-        self,
-        callback: object,
-        button: Gtk.Button,
-    ) -> bool:
-        callback(button)
-        return GLib.SOURCE_REMOVE
 
     def _on_provider_settings_clicked(
         self,

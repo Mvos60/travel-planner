@@ -18,6 +18,10 @@ from travel_planner.planning_engine import plan_trip
 from travel_planner.provider_settings_dialog import (
     ProviderSettingsDialog,
 )
+from travel_planner.route_metrics import (
+    calculate_route_distance_km,
+    format_distance_km,
+)
 from travel_planner.context import TravelPlannerContext
 from travel_planner.route_cache import RouteCache
 from travel_planner.routing_profile import RoutingProfile
@@ -181,7 +185,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         trip_settings_button.add_css_class("flat")
         trip_settings_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_trip_settings_clicked,
         )
         menu_box.append(trip_settings_button)
@@ -192,7 +195,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         provider_settings_button.add_css_class("flat")
         provider_settings_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_provider_settings_clicked,
         )
         menu_box.append(provider_settings_button)
@@ -203,7 +205,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         vehicles_button.add_css_class("flat")
         vehicles_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_vehicle_manager_clicked,
         )
         menu_box.append(vehicles_button)
@@ -214,7 +215,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         route_cache_button.add_css_class("flat")
         route_cache_button.connect(
             "clicked",
-            self._on_menu_action_clicked,
             self._on_route_cache_clicked,
         )
         menu_box.append(route_cache_button)
@@ -1275,32 +1275,18 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         route_coordinates = (
             self._calculate_route_coordinates()
         )
-        metrics = self.route_service.last_route_metrics
-        route_summary = TripSummary.from_trip(
-            self.trip,
-            route_distance_km=(
-                metrics.distance_km
-                if metrics is not None
-                else None
-            ),
-            route_duration_seconds=(
-                round(metrics.duration_seconds)
-                if metrics is not None
-                else None
-            ),
+        route_distance_km = calculate_route_distance_km(
+            route_coordinates
         )
 
         summary_parts = [
-            f"{route_summary.stop_count} stops",
-            f"{route_summary.total_nights} nachten",
+            f"{len(self.trip.stops)} stops",
+            f"{self.trip.total_nights} nachten",
         ]
 
-        if (
-            len(self.trip.stops) >= 2
-            and metrics is not None
-        ):
+        if len(self.trip.stops) >= 2:
             summary_parts.append(
-                route_summary.formatted_distance
+                format_distance_km(route_distance_km)
             )
 
         summary_parts.append(
@@ -1310,7 +1296,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.summary_label.set_text(
             "  •  ".join(summary_parts)
         )
-        self._update_trip_summary()
 
         child = self.stop_list.get_first_child()
 
@@ -1487,32 +1472,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             None,
             None,
         )
-
-    def _on_menu_action_clicked(
-        self,
-        button: Gtk.Button,
-        callback: object,
-    ) -> None:
-        """Close the menu before opening its requested dialog."""
-
-        popover = button.get_ancestor(Gtk.Popover)
-
-        if popover is not None:
-            popover.popdown()
-
-        GLib.idle_add(
-            self._run_menu_action,
-            callback,
-            button,
-        )
-
-    def _run_menu_action(
-        self,
-        callback: object,
-        button: Gtk.Button,
-    ) -> bool:
-        callback(button)
-        return GLib.SOURCE_REMOVE
 
     def _on_provider_settings_clicked(
         self,
@@ -2300,20 +2259,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         if not self.trip_summary_value_labels:
             return True
 
-        metrics = self.route_service.last_route_metrics
-        summary = TripSummary.from_trip(
-            self.trip,
-            route_distance_km=(
-                metrics.distance_km
-                if metrics is not None
-                else None
-            ),
-            route_duration_seconds=(
-                round(metrics.duration_seconds)
-                if metrics is not None
-                else None
-            ),
-        )
+        summary = TripSummary.from_trip(self.trip)
 
         values = {
             "stops": str(summary.stop_count),

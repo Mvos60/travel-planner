@@ -70,66 +70,6 @@ class RoutingRequest:
 
 
 @dataclass(frozen=True)
-class RouteMetrics:
-    """Distance and duration reported by a routing provider."""
-
-    distance_meters: float
-    duration_seconds: float
-
-    @property
-    def distance_km(self) -> float:
-        return self.distance_meters / 1000.0
-
-
-def _numeric_metric(value: object) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        number = float(value)
-        if number >= 0:
-            return number
-    return None
-
-
-def _extract_osrm_metrics(payload: object) -> RouteMetrics | None:
-    if not isinstance(payload, dict):
-        return None
-    routes = payload.get('routes')
-    if not isinstance(routes, list) or not routes:
-        return None
-    route = routes[0]
-    if not isinstance(route, dict):
-        return None
-    distance = _numeric_metric(route.get('distance'))
-    duration = _numeric_metric(route.get('duration'))
-    if distance is None or duration is None:
-        return None
-    return RouteMetrics(distance_meters=distance, duration_seconds=duration)
-
-
-def _extract_ors_metrics(payload: object) -> RouteMetrics | None:
-    if not isinstance(payload, dict):
-        return None
-    features = payload.get('features')
-    if not isinstance(features, list) or not features:
-        return None
-    feature = features[0]
-    if not isinstance(feature, dict):
-        return None
-    properties = feature.get('properties')
-    if not isinstance(properties, dict):
-        return None
-    summary = properties.get('summary')
-    if not isinstance(summary, dict):
-        return None
-    distance = _numeric_metric(summary.get('distance'))
-    duration = _numeric_metric(summary.get('duration'))
-    if distance is None or duration is None:
-        return None
-    return RouteMetrics(distance_meters=distance, duration_seconds=duration)
-
-
-@dataclass(frozen=True)
 class RouteProviderCapabilities:
     """Features supported by one route provider."""
 
@@ -160,7 +100,6 @@ class DirectRouteProvider:
     """Returns direct lines between the supplied stops."""
 
     capabilities = RouteProviderCapabilities()
-    last_route_metrics: RouteMetrics | None = None
 
     def calculate_route(
         self,
@@ -349,7 +288,6 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
                     {"response": payload},
                 )
 
-        self.last_route_metrics = _extract_osrm_metrics(payload)
         return self._parse_response(payload)
 
     def check_connection(self) -> None:
@@ -543,7 +481,6 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
             provider_name="OpenRouteService",
         )
 
-        self.last_route_metrics = _extract_ors_metrics(payload)
         return self._parse_response(payload)
 
     def check_connection(self) -> None:
@@ -726,14 +663,12 @@ class RouteService:
         self.fallback_provider = (
             fallback_provider or DirectRouteProvider()
         )
-        self.last_route_metrics: RouteMetrics | None = None
 
     def set_provider(
         self,
         provider: RouteProvider,
     ) -> None:
         self.provider = provider
-        self.last_route_metrics = None
 
     @property
     def capabilities(self) -> RouteProviderCapabilities:
@@ -754,13 +689,6 @@ class RouteService:
         )
 
         try:
-            route = self.provider.calculate_route(request)
-            self.last_route_metrics = getattr(
-                self.provider,
-                "last_route_metrics",
-                None,
-            )
-            return route
+            return self.provider.calculate_route(request)
         except RouteProviderError:
-            self.last_route_metrics = None
             return self.fallback_provider.calculate_route(request)
