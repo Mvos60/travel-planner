@@ -27,7 +27,6 @@ from travel_planner.route_cache import RouteCache
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
 from travel_planner.stop_editor_dialog import StopEditorDialog
-from travel_planner.trip_summary import TripSummary
 from travel_planner.trip import Trip
 from travel_planner.trip_settings_dialog import TripSettingsDialog
 from travel_planner.vehicle_manager_dialog import VehicleManagerDialog
@@ -91,7 +90,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         )
         self.stop_list = Gtk.ListBox()
         self.summary_label = Gtk.Label()
-        self.trip_summary_value_labels: dict[str, Gtk.Label] = {}
         self.header_title = Gtk.Label()
         self.move_up_button = Gtk.Button(label="Omhoog")
         self.move_down_button = Gtk.Button(label="Omlaag")
@@ -136,7 +134,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self._refresh_route_provider_selector()
         self._load_map()
         self._update_window_title()
-        self._update_trip_summary()
 
         self.autosave_timer_id = GLib.timeout_add_seconds(
             30,
@@ -375,62 +372,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         sidebar.append(preferences_label)
         sidebar.append(self.preferences_box)
 
-        trip_summary_separator = Gtk.Separator(
-            orientation=Gtk.Orientation.HORIZONTAL,
-        )
-        trip_summary_separator.set_margin_top(8)
-        sidebar.append(trip_summary_separator)
-
-        trip_summary_title = Gtk.Label(
-            label="Reisoverzicht"
-        )
-        trip_summary_title.set_xalign(0)
-        trip_summary_title.add_css_class("heading")
-        trip_summary_title.set_margin_top(4)
-        sidebar.append(trip_summary_title)
-
-        trip_summary_grid = Gtk.Grid(
-            column_spacing=12,
-            row_spacing=4,
-        )
-        trip_summary_grid.set_hexpand(True)
-
-        summary_rows = (
-            ("stops", "Stops"),
-            ("nights", "Overnachtingen"),
-            ("distance", "Totale afstand"),
-            ("duration", "Totale rijtijd"),
-            ("days", "Reisduur"),
-        )
-
-        for row_index, (key, caption) in enumerate(
-            summary_rows
-        ):
-            caption_label = Gtk.Label(label=caption)
-            caption_label.set_xalign(0)
-
-            value_label = Gtk.Label(label="—")
-            value_label.set_xalign(1)
-            value_label.set_hexpand(True)
-
-            trip_summary_grid.attach(
-                caption_label,
-                0,
-                row_index,
-                1,
-                1,
-            )
-            trip_summary_grid.attach(
-                value_label,
-                1,
-                row_index,
-                1,
-                1,
-            )
-            self.trip_summary_value_labels[key] = value_label
-
-        sidebar.append(trip_summary_grid)
-
         self.avoid_motorways_check.set_margin_top(4)
         self.avoid_motorways_check.set_margin_bottom(4)
         self.avoid_motorways_check.connect(
@@ -508,7 +449,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.set_child(root)
 
         self._refresh_interface()
-        self._update_trip_summary()
 
     def _load_map(self) -> None:
         map_path = Path(__file__).with_name("map.html")
@@ -936,7 +876,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._update_window_title()
         self._refresh_interface()
-        self._update_trip_summary()
 
     def _discard_autosave(
         self,
@@ -1197,7 +1136,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.modified = True
         self._update_window_title()
         self._refresh_interface()
-        self._update_trip_summary()
 
     def _on_route_profile_changed(
         self,
@@ -1221,7 +1159,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._update_window_title()
         self._refresh_interface()
-        self._update_trip_summary()
 
     def _on_avoid_motorways_toggled(
         self,
@@ -1597,7 +1534,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.modified = True
             self._update_window_title()
             self._refresh_interface()
-            self._update_trip_summary()
 
         dialog.destroy()
 
@@ -1760,7 +1696,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._update_window_title()
         self._refresh_interface()
-        self._update_trip_summary()
 
     def _on_add_stop_clicked(
         self,
@@ -1858,7 +1793,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self._mark_modified()
         dialog.destroy()
         self._refresh_interface()
-        self._update_trip_summary()
 
         if selected_index is not None:
             edited_row = self.stop_list.get_row_at_index(
@@ -1912,7 +1846,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._mark_modified()
         self._refresh_interface()
-        self._update_trip_summary()
 
         new_row = self.stop_list.get_row_at_index(index - 1)
 
@@ -1940,7 +1873,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._mark_modified()
         self._refresh_interface()
-        self._update_trip_summary()
 
         new_row = self.stop_list.get_row_at_index(index + 1)
 
@@ -1961,7 +1893,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._mark_modified()
         self._refresh_interface()
-        self._update_trip_summary()
 
     def _on_open_clicked(
         self,
@@ -2046,7 +1977,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self._update_window_title()
         self._refresh_interface()
-        self._update_trip_summary()
 
     def _on_save_clicked(
         self,
@@ -2252,27 +2182,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 "Routecache gewist",
                 f"{removed} cachebestanden verwijderd.",
             )
-
-    def _update_trip_summary(self) -> bool:
-        """Refresh the read-only trip summary panel."""
-
-        if not self.trip_summary_value_labels:
-            return True
-
-        summary = TripSummary.from_trip(self.trip)
-
-        values = {
-            "stops": str(summary.stop_count),
-            "nights": str(summary.total_nights),
-            "distance": summary.formatted_distance,
-            "duration": summary.formatted_duration,
-            "days": summary.formatted_planned_days,
-        }
-
-        for key, value in values.items():
-            self.trip_summary_value_labels[key].set_text(value)
-
-        return True
 
     def _show_message(
         self,

@@ -9,19 +9,10 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, Gtk
 
 from travel_planner.context import TravelPlannerContext
-from travel_planner.route_cache import RouteCache
 from travel_planner.window import TravelPlannerWindow
 
 
 APP_ID = "com.mac.travelplanner"
-
-
-def maintain_route_cache(
-    cache: RouteCache | None = None,
-) -> int:
-    # Remove expired or invalid cache files during startup.
-    active_cache = cache or RouteCache()
-    return active_cache.prune()
 
 
 class TravelPlannerApplication(Gtk.Application):
@@ -31,7 +22,6 @@ class TravelPlannerApplication(Gtk.Application):
             flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
         )
 
-        maintain_route_cache()
         self.context = TravelPlannerContext.create_default()
 
     def do_activate(self) -> None:

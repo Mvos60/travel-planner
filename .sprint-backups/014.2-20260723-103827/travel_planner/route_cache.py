@@ -59,20 +59,6 @@ def build_route_cache_key(
 
 
 @dataclass(frozen=True)
-class RouteCacheStatistics:
-    """Current on-disk route-cache statistics."""
-
-    entry_count: int
-    expired_count: int
-    invalid_count: int
-    size_bytes: int
-
-    @property
-    def size_megabytes(self) -> float:
-        return self.size_bytes / (1024 * 1024)
-
-
-@dataclass(frozen=True)
 class RouteCacheEntry:
     """One cached routing response."""
 
@@ -161,69 +147,6 @@ class RouteCache:
             encoding="utf-8",
         )
         temporary.replace(destination)
-
-    def statistics(
-        self,
-        *,
-        now: datetime | None = None,
-    ) -> RouteCacheStatistics:
-        """Inspect cache files without modifying them."""
-
-        if not self.directory.exists():
-            return RouteCacheStatistics(
-                entry_count=0,
-                expired_count=0,
-                invalid_count=0,
-                size_bytes=0,
-            )
-
-        current_time = now or _utc_now()
-        entry_count = 0
-        expired_count = 0
-        invalid_count = 0
-        size_bytes = 0
-
-        for path in self.directory.glob("*.json"):
-            try:
-                size_bytes += path.stat().st_size
-                raw = json.loads(
-                    path.read_text(encoding="utf-8")
-                )
-                entry = RouteCacheEntry(
-                    key=str(raw["key"]),
-                    created_at=datetime.fromisoformat(
-                        str(raw["created_at"])
-                    ),
-                    payload=dict(raw["payload"]),
-                )
-            except (
-                OSError,
-                ValueError,
-                TypeError,
-                KeyError,
-                json.JSONDecodeError,
-            ):
-                invalid_count += 1
-                continue
-
-            if entry.key != path.stem:
-                invalid_count += 1
-                continue
-
-            entry_count += 1
-
-            if entry.is_expired(
-                ttl=self.ttl,
-                now=current_time,
-            ):
-                expired_count += 1
-
-        return RouteCacheStatistics(
-            entry_count=entry_count,
-            expired_count=expired_count,
-            invalid_count=invalid_count,
-            size_bytes=size_bytes,
-        )
 
     def clear(self) -> int:
         if not self.directory.exists():
