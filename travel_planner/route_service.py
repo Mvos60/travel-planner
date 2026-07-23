@@ -9,6 +9,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from travel_planner.route_cache import (
+    RouteCache,
+    build_route_cache_key,
+)
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
 from travel_planner.travel_preferences import TravelPreferences
@@ -220,6 +224,7 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         opener: Callable[..., object] = urlopen,
         avoid_motorways: bool = False,
+        route_cache: RouteCache | None = None,
     ) -> None:
         super().__init__(
             timeout_seconds=timeout_seconds,
@@ -228,6 +233,14 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
 
         self.base_url = base_url.rstrip("/")
         self.avoid_motorways = avoid_motorways
+
+        self.route_cache = (
+            route_cache
+            if route_cache is not None
+            else RouteCache()
+            if opener is urlopen
+            else None
+        )
 
     def calculate_route(
         self,
@@ -238,14 +251,42 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
         if len(stops) < 2:
             return DirectRouteProvider().calculate_route(request)
 
-        http_request = self._build_json_request(
-            self._build_route_url(stops)
+        route_url = self._build_route_url(stops)
+        cache_key = build_route_cache_key(
+            provider="osrm",
+            profile="driving",
+            coordinates=[
+                (stop.longitude, stop.latitude)
+                for stop in stops
+            ],
+            options={
+                "base_url": self.base_url,
+                "avoid_motorways": self.avoid_motorways,
+            },
         )
 
-        payload = self._load_json_response(
-            http_request,
-            provider_name="OSRM",
-        )
+        payload: object | None = None
+
+        if self.route_cache is not None:
+            cached = self.route_cache.get(cache_key)
+            if cached is not None:
+                payload = cached.get("response")
+
+        if payload is None:
+            http_request = self._build_json_request(route_url)
+            payload = self._load_json_response(
+                http_request,
+                provider_name="OSRM",
+            )
+
+            if (
+                self.route_cache is not None
+                and isinstance(payload, dict)
+            ):
+                self.route_cache.put(
+                    cache_key,
+                    {"response": payload},
+                )
 
         return self._parse_response(payload)
 
