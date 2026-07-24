@@ -20,6 +20,10 @@ from travel_planner.provider_settings_dialog import (
 )
 from travel_planner.context import TravelPlannerContext
 from travel_planner.route_cache import RouteCache
+from travel_planner.route_time_estimation import (
+    estimate_personal_duration_seconds,
+    format_duration_seconds,
+)
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
 from travel_planner.stop_editor_dialog import StopEditorDialog
@@ -463,6 +467,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         route_info_rows = (
             ("distance", "Afstand"),
             ("duration", "Rijtijd (provider)"),
+            ("personal_duration", "Jouw reistijd"),
             ("provider", "Provider"),
             ("profile", "Profiel"),
         )
@@ -1105,6 +1110,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         self.trip.vehicle_profile_id = vehicle_profile_id
         self._mark_modified()
+        self._update_trip_summary()
 
     def _refresh_route_provider_selector(self) -> None:
         """Synchronize the provider selector with the manager."""
@@ -2403,6 +2409,9 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         route_values = {
             "distance": summary.formatted_distance,
             "duration": summary.formatted_duration,
+            "personal_duration": (
+                self._formatted_personal_route_duration(metrics)
+            ),
             "provider": provider_name,
             "profile": self.trip.routing_profile.display_name,
         }
@@ -2411,6 +2420,30 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.route_info_value_labels[key].set_text(value)
 
         return True
+
+    def _formatted_personal_route_duration(
+        self,
+        metrics: object | None,
+    ) -> str:
+        """Return estimated driving time for the selected vehicle."""
+
+        if metrics is None or self.trip.vehicle_profile_id is None:
+            return "—"
+
+        profile = self.context.vehicle_profile_repository.get(
+            self.trip.vehicle_profile_id
+        )
+
+        if profile is None:
+            return "—"
+
+        duration_seconds = estimate_personal_duration_seconds(
+            distance_km=metrics.distance_km,
+            motorway_speed_kmh=profile.average_motorway_speed_kmh,
+            local_speed_kmh=profile.average_local_speed_kmh,
+        )
+
+        return format_duration_seconds(duration_seconds)
 
     def _show_message(
         self,
