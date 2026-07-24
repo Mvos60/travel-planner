@@ -442,6 +442,18 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         route_info_title.set_margin_top(4)
         sidebar.append(route_info_title)
 
+        recalculate_route_button = Gtk.Button(
+            label="Route opnieuw berekenen"
+        )
+        recalculate_route_button.set_hexpand(True)
+        recalculate_route_button.set_margin_top(4)
+        recalculate_route_button.set_margin_bottom(4)
+        recalculate_route_button.connect(
+            "clicked",
+            self._on_recalculate_route_clicked,
+        )
+        sidebar.append(recalculate_route_button)
+
         route_info_grid = Gtk.Grid(
             column_spacing=12,
             row_spacing=4,
@@ -2345,6 +2357,13 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 "Routecache gewist",
                 f"{removed} cachebestanden verwijderd.",
             )
+
+    def _on_recalculate_route_clicked(
+        self,
+        _button: Gtk.Button,
+    ) -> None:
+        # Recalculate and redraw the current route.
+        self._refresh_interface()
 
     def _update_trip_summary(self) -> bool:
         """Refresh the read-only trip summary panel."""
