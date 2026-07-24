@@ -9,3 +9,4 @@ __pycache__/
 
 # Sprint backups
 .sprint-backups/
+.backups/
