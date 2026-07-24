@@ -6,3 +6,6 @@ __pycache__/
 
 # Personal trip and autosave data
 /data/
+
+# Sprint backups
+.sprint-backups/
