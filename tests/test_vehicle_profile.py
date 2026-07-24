@@ -77,3 +77,46 @@ def test_vehicle_profile_rejects_invalid_dimensions() -> None:
             name="Invalid camper",
             height_m=0,
         )
+
+
+
+def test_vehicle_profile_stores_average_speeds() -> None:
+    profile = VehicleProfile(
+        name="Camper",
+        average_motorway_speed_kmh=88,
+        average_local_speed_kmh=52,
+    )
+
+    assert profile.average_motorway_speed_kmh == 88.0
+    assert profile.average_local_speed_kmh == 52.0
+
+
+def test_vehicle_profile_uses_speed_defaults_for_old_data() -> None:
+    profile = VehicleProfile.from_dict({"name": "Bestaande camper"})
+
+    assert profile.average_motorway_speed_kmh == 90.0
+    assert profile.average_local_speed_kmh == 55.0
+
+
+def test_vehicle_profile_round_trip_preserves_average_speeds() -> None:
+    original = VehicleProfile(
+        profile_id="camper",
+        name="Camper",
+        average_motorway_speed_kmh=92,
+        average_local_speed_kmh=58,
+    )
+
+    restored = VehicleProfile.from_dict(original.to_dict())
+
+    assert restored == original
+
+
+def test_vehicle_profile_rejects_invalid_average_speed() -> None:
+    with pytest.raises(
+        ValueError,
+        match="average_motorway_speed_kmh must be greater than zero",
+    ):
+        VehicleProfile(
+            name="Camper",
+            average_motorway_speed_kmh=0,
+        )

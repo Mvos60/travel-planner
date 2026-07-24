@@ -28,6 +28,8 @@ class VehicleProfile:
     height_m: float | None = None
     max_weight_kg: int | None = None
     emission_class: str | None = None
+    average_motorway_speed_kmh: float = 90.0
+    average_local_speed_kmh: float = 55.0
 
     def __post_init__(self) -> None:
         self.name = self.name.strip()
@@ -55,6 +57,21 @@ class VehicleProfile:
             "max_weight_kg",
             self.max_weight_kg,
         )
+        self._validate_positive_number(
+            "average_motorway_speed_kmh",
+            self.average_motorway_speed_kmh,
+        )
+        self._validate_positive_number(
+            "average_local_speed_kmh",
+            self.average_local_speed_kmh,
+        )
+
+        self.average_motorway_speed_kmh = float(
+            self.average_motorway_speed_kmh
+        )
+        self.average_local_speed_kmh = float(
+            self.average_local_speed_kmh
+        )
 
         if self.emission_class is not None:
             self.emission_class = self.emission_class.strip() or None
@@ -80,6 +97,12 @@ class VehicleProfile:
             "height_m": self.height_m,
             "max_weight_kg": self.max_weight_kg,
             "emission_class": self.emission_class,
+            "average_motorway_speed_kmh": (
+                self.average_motorway_speed_kmh
+            ),
+            "average_local_speed_kmh": (
+                self.average_local_speed_kmh
+            ),
         }
 
     @classmethod
@@ -111,6 +134,12 @@ class VehicleProfile:
             ),
             "emission_class": cls._optional_string(
                 data.get("emission_class")
+            ),
+            "average_motorway_speed_kmh": float(
+                data.get("average_motorway_speed_kmh", 90.0)
+            ),
+            "average_local_speed_kmh": float(
+                data.get("average_local_speed_kmh", 55.0)
             ),
         }
 

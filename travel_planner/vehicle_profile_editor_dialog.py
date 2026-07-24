@@ -32,7 +32,7 @@ class VehicleProfileEditorDialog(Gtk.Window):
         self.profile = profile
         self.on_save = on_save
 
-        self.set_default_size(500, 520)
+        self.set_default_size(500, 650)
         self.set_resizable(False)
 
         self.name_entry = Gtk.Entry()
@@ -41,6 +41,8 @@ class VehicleProfileEditorDialog(Gtk.Window):
         self.height_entry = Gtk.Entry()
         self.weight_entry = Gtk.Entry()
         self.emission_entry = Gtk.Entry()
+        self.motorway_speed_entry = Gtk.Entry()
+        self.local_speed_entry = Gtk.Entry()
 
         self.error_label = Gtk.Label()
         self.error_label.set_xalign(0)
@@ -141,6 +143,20 @@ class VehicleProfileEditorDialog(Gtk.Window):
             entry=self.emission_entry,
             placeholder="bijv. Euro 6",
         )
+        self._add_field(
+            technical_grid,
+            row=2,
+            label="Gem. snelheid snelweg (km/u)",
+            entry=self.motorway_speed_entry,
+            placeholder="bijv. 90",
+        )
+        self._add_field(
+            technical_grid,
+            row=3,
+            label="Gem. snelheid binnendoor (km/u)",
+            entry=self.local_speed_entry,
+            placeholder="bijv. 55",
+        )
 
         button_box = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
@@ -220,6 +236,8 @@ class VehicleProfileEditorDialog(Gtk.Window):
 
     def _populate_fields(self) -> None:
         if self.profile is None:
+            self.motorway_speed_entry.set_text("90")
+            self.local_speed_entry.set_text("55")
             return
 
         self.name_entry.set_text(self.profile.name)
@@ -245,6 +263,15 @@ class VehicleProfileEditorDialog(Gtk.Window):
             self.emission_entry.set_text(
                 self.profile.emission_class
             )
+
+        self._set_optional_number(
+            self.motorway_speed_entry,
+            self.profile.average_motorway_speed_kmh,
+        )
+        self._set_optional_number(
+            self.local_speed_entry,
+            self.profile.average_local_speed_kmh,
+        )
 
     @staticmethod
     def _set_optional_number(
@@ -305,6 +332,14 @@ class VehicleProfileEditorDialog(Gtk.Window):
                 self.emission_entry.get_text().strip()
                 or None
             ),
+            "average_motorway_speed_kmh": self._required_float(
+                self.motorway_speed_entry.get_text(),
+                "Gemiddelde snelheid snelweg",
+            ),
+            "average_local_speed_kmh": self._required_float(
+                self.local_speed_entry.get_text(),
+                "Gemiddelde snelheid binnendoor",
+            ),
         }
 
         if self.profile is not None:
@@ -313,6 +348,30 @@ class VehicleProfileEditorDialog(Gtk.Window):
             )
 
         return VehicleProfile(**arguments)
+
+    @staticmethod
+    def _required_float(
+        text: str,
+        field_name: str,
+    ) -> float:
+        value = text.strip()
+
+        if not value:
+            raise ValueError(f"{field_name} is verplicht.")
+
+        try:
+            number = float(value.replace(",", "."))
+        except ValueError as error:
+            raise ValueError(
+                f"{field_name} moet een geldig getal zijn."
+            ) from error
+
+        if number <= 0:
+            raise ValueError(
+                f"{field_name} moet groter zijn dan nul."
+            )
+
+        return number
 
     @staticmethod
     def _optional_float(
