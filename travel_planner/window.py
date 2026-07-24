@@ -123,10 +123,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.syncing_route_profile = False
         self.syncing_preferences = False
 
-        self.avoid_motorways_check = Gtk.CheckButton(
-            label="Snelwegen vermijden"
-        )
-
         self.editing_stop_index: int | None = None
         self.map_click_name: str | None = None
         self.map_click_latitude: float | None = None
@@ -499,13 +495,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.route_info_value_labels[key] = value_label
 
         sidebar.append(route_info_grid)
-
-        self.avoid_motorways_check.set_margin_top(4)
-        self.avoid_motorways_check.set_margin_bottom(4)
-        self.avoid_motorways_check.connect(
-            "toggled",
-            self._on_avoid_motorways_toggled,
-        )
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(
@@ -1293,24 +1282,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self._refresh_interface()
         self._update_trip_summary()
 
-    def _on_avoid_motorways_toggled(
-        self,
-        check_button: Gtk.CheckButton,
-    ) -> None:
-        avoid_motorways = check_button.get_active()
-
-        if self.trip.avoid_motorways == avoid_motorways:
-            return
-
-        self.trip.avoid_motorways = avoid_motorways
-        self.osrm_route_provider.avoid_motorways = (
-            avoid_motorways
-        )
-
-        self.modified = True
-        self._update_window_title()
-        self._refresh_map()
-
     def _refresh_interface(self) -> None:
         self._refresh_route_provider_selector()
         self.syncing_route_profile = True
@@ -1323,24 +1294,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.syncing_route_profile = False
 
         self._refresh_preferences_panel()
-
-        self.osrm_route_provider.avoid_motorways = (
-            self.trip.avoid_motorways
-        )
-
-        self.avoid_motorways_check.set_active(
-            self.trip.avoid_motorways
-        )
-        self.avoid_motorways_check.set_sensitive(
-            self.route_service.capabilities.supports_avoid_highways
-        )
-
-        if self.route_service.capabilities.supports_avoid_highways:
-            self.avoid_motorways_check.set_tooltip_text(None)
-        else:
-            self.avoid_motorways_check.set_tooltip_text(
-                "Niet ondersteund door de huidige routeprovider."
-            )
 
         route_coordinates = (
             self._calculate_route_coordinates()

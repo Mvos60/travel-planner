@@ -284,7 +284,6 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
         base_url: str = DEFAULT_OSRM_BASE_URL,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         opener: Callable[..., object] = urlopen,
-        avoid_motorways: bool = False,
         route_cache: RouteCache | None = None,
     ) -> None:
         super().__init__(
@@ -293,7 +292,6 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
         )
 
         self.base_url = base_url.rstrip("/")
-        self.avoid_motorways = avoid_motorways
 
         self.route_cache = (
             route_cache
@@ -322,7 +320,6 @@ class OSRMRouteProvider(BaseHttpRouteProvider):
             ],
             options={
                 "base_url": self.base_url,
-                "avoid_motorways": self.avoid_motorways,
             },
         )
 

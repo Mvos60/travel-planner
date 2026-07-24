@@ -25,7 +25,6 @@ class Trip:
         default_factory=TripSettings
     )
     vehicle_profile_id: str | None = None
-    avoid_motorways: bool = False
 
     def add_stop(self, stop: Stop) -> None:
         """Append one stop to the trip."""
@@ -52,7 +51,6 @@ class Trip:
             ),
             "trip_settings": self.trip_settings.to_dict(),
             "vehicle_profile_id": self.vehicle_profile_id,
-            "avoid_motorways": self.avoid_motorways,
         }
 
         path.parent.mkdir(
@@ -83,27 +81,34 @@ class Trip:
             path.read_text(encoding="utf-8")
         )
 
+        preferences_data = data.get("travel_preferences")
+        travel_preferences = TravelPreferences.from_dict(
+            preferences_data
+        )
+
+        # Migrate legacy trips that stored the same choice separately.
+        if (
+            "avoid_motorways" in data
+            and (
+                not isinstance(preferences_data, dict)
+                or "avoid_highways" not in preferences_data
+            )
+        ):
+            travel_preferences.avoid_highways = bool(
+                data.get("avoid_motorways", False)
+            )
+
         trip = cls(
             name=data["name"],
             routing_profile=RoutingProfile.from_value(
                 data.get("routing_profile")
             ),
-            travel_preferences=(
-                TravelPreferences.from_dict(
-                    data.get("travel_preferences")
-                )
-            ),
+            travel_preferences=travel_preferences,
             trip_settings=TripSettings.from_dict(
                 data.get("trip_settings")
             ),
             vehicle_profile_id=data.get(
                 "vehicle_profile_id"
-            ),
-            avoid_motorways=bool(
-                data.get(
-                    "avoid_motorways",
-                    False,
-                )
             ),
         )
 

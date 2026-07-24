@@ -129,40 +129,6 @@ def test_trip_rejects_non_list_stop_data(
         Trip.load(path)
 
 
-def test_trip_saves_and_loads_avoid_motorways(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "route-preferences.trip.json"
-    trip = Trip(
-        name="Routevoorkeuren",
-        avoid_motorways=True,
-    )
-
-    trip.save(path)
-    loaded_trip = Trip.load(path)
-
-    assert loaded_trip.avoid_motorways is True
-
-
-def test_old_trip_without_route_preferences_still_loads(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "old.trip.json"
-    path.write_text(
-        json.dumps(
-            {
-                "name": "Oude reis",
-                "stops": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    trip = Trip.load(path)
-
-    assert trip.avoid_motorways is False
-
-
 def test_trip_saves_and_loads_routing_profile(
     tmp_path: Path,
 ) -> None:

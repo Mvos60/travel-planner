@@ -226,48 +226,6 @@ def test_route_service_falls_back_to_direct_route() -> None:
     ]
 
 
-def test_public_osrm_request_does_not_exclude_motorways() -> None:
-    captured_request: Request | None = None
-
-    payload = {
-        "code": "Ok",
-        "routes": [
-            {
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": [
-                        [4.6000, 44.7350],
-                        [11.4041, 47.2692],
-                    ],
-                }
-            }
-        ],
-    }
-
-    def opener(
-        request: Request,
-        timeout: float,
-    ) -> FakeResponse:
-        nonlocal captured_request
-        captured_request = request
-
-        return FakeResponse(
-            json.dumps(payload).encode("utf-8")
-        )
-
-    provider = OSRMRouteProvider(
-        base_url="https://example.test",
-        opener=opener,
-        avoid_motorways=True,
-    )
-
-    provider.calculate_route(RoutingRequest.create(make_stops()[:2]))
-
-    assert captured_request is not None
-    assert "exclude=" not in captured_request.full_url
-
-
-
 def test_route_service_accepts_routing_profile() -> None:
     from travel_planner.routing_profile import RoutingProfile
 
