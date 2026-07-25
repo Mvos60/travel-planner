@@ -1467,6 +1467,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             for coordinate in self.route_service.calculate_route(
                 self.trip.stops,
                 profile=self.trip.routing_profile,
+                preferences=self.trip.travel_preferences,
             )
         ]
 

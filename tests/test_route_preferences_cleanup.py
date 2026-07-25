@@ -96,3 +96,22 @@ def test_window_contains_no_legacy_motorway_controls() -> None:
     assert "avoid_motorways_check" not in source
     assert "_on_avoid_motorways_toggled" not in source
     assert "trip.avoid_motorways" not in source
+
+
+def test_window_passes_trip_preferences_to_route_service() -> None:
+    source = (
+        PROJECT_ROOT
+        / "travel_planner"
+        / "window.py"
+    ).read_text(encoding="utf-8")
+
+    expected_call = (
+        "self.route_service.calculate_route(\n"
+        "                self.trip.stops,\n"
+        "                profile=self.trip.routing_profile,\n"
+        "                preferences=self.trip.travel_preferences,\n"
+        "            )"
+    )
+
+    assert expected_call in source
+
