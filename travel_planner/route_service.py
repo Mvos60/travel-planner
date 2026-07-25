@@ -498,7 +498,7 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
         supports_avoid_highways=True,
         supports_avoid_tolls=True,
         supports_avoid_ferries=True,
-        supports_vehicle_dimensions=False,
+        supports_vehicle_dimensions=True,
     )
 
     def __init__(
@@ -537,7 +537,7 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
             )
 
         http_request = self._build_json_request(
-            self._build_route_url(),
+            self._build_route_url(request),
             method="POST",
             headers={
                 "Authorization": self.api_key,
@@ -580,10 +580,21 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
 
         self._parse_response(payload)
 
-    def _build_route_url(self) -> str:
+    def _build_route_url(
+        self,
+        request: RoutingRequest | None = None,
+    ) -> str:
+        profile = "driving-car"
+
+        if (
+            request is not None
+            and not request.vehicle_dimensions.is_empty
+        ):
+            profile = "driving-hgv"
+
         return (
             f"{self.base_url}/v2/directions/"
-            "driving-car/geojson"
+            f"{profile}/geojson"
         )
 
     def _build_payload(
@@ -611,10 +622,36 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
         if request.preferences.avoid_ferries:
             avoid_features.append("ferries")
 
+        options: dict[str, object] = {}
+
         if avoid_features:
-            payload["options"] = {
-                "avoid_features": avoid_features,
+            options["avoid_features"] = avoid_features
+
+        dimensions = request.vehicle_dimensions
+        restrictions: dict[str, float] = {}
+
+        if dimensions.length_m is not None:
+            restrictions["length"] = dimensions.length_m
+
+        if dimensions.width_m is not None:
+            restrictions["width"] = dimensions.width_m
+
+        if dimensions.height_m is not None:
+            restrictions["height"] = dimensions.height_m
+
+        if dimensions.weight_kg is not None:
+            restrictions["weight"] = (
+                dimensions.weight_kg / 1000.0
+            )
+
+        if restrictions:
+            options["vehicle_type"] = "hgv"
+            options["profile_params"] = {
+                "restrictions": restrictions,
             }
+
+        if options:
+            payload["options"] = options
 
         return payload
 

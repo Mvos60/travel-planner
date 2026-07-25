@@ -301,4 +301,103 @@ def test_ors_capabilities_include_avoid_options() -> None:
     assert capabilities.supports_avoid_highways is True
     assert capabilities.supports_avoid_tolls is True
     assert capabilities.supports_avoid_ferries is True
-    assert capabilities.supports_vehicle_dimensions is False
+    assert capabilities.supports_vehicle_dimensions is True
+
+
+def test_ors_supports_vehicle_dimensions() -> None:
+    provider = OpenRouteServiceProvider(api_key="secret-key")
+
+    assert provider.capabilities.supports_vehicle_dimensions
+
+
+def test_ors_uses_hgv_profile_for_vehicle_dimensions() -> None:
+    from travel_planner.vehicle_dimensions import VehicleDimensions
+
+    provider = OpenRouteServiceProvider(
+        api_key="secret-key",
+        base_url="https://example.test",
+    )
+    request = RoutingRequest.create(
+        make_stops(),
+        vehicle_dimensions=VehicleDimensions(height_m=3.05),
+    )
+
+    assert provider._build_route_url(request) == (
+        "https://example.test/v2/directions/"
+        "driving-hgv/geojson"
+    )
+
+
+def test_ors_keeps_car_profile_without_vehicle_dimensions() -> None:
+    provider = OpenRouteServiceProvider(
+        api_key="secret-key",
+        base_url="https://example.test",
+    )
+
+    assert provider._build_route_url(
+        RoutingRequest.create(make_stops())
+    ) == (
+        "https://example.test/v2/directions/"
+        "driving-car/geojson"
+    )
+
+
+def test_ors_translates_vehicle_dimensions_to_restrictions() -> None:
+    from travel_planner.vehicle_dimensions import VehicleDimensions
+
+    provider = OpenRouteServiceProvider(api_key="secret-key")
+    request = RoutingRequest.create(
+        make_stops(),
+        vehicle_dimensions=VehicleDimensions(
+            length_m=7.20,
+            width_m=2.30,
+            height_m=3.05,
+            weight_kg=4100,
+        ),
+    )
+
+    payload = provider._build_payload(request)
+
+    assert payload["options"] == {
+        "vehicle_type": "hgv",
+        "profile_params": {
+            "restrictions": {
+                "length": 7.20,
+                "width": 2.30,
+                "height": 3.05,
+                "weight": 4.1,
+            },
+        },
+    }
+
+
+def test_ors_combines_preferences_and_vehicle_restrictions() -> None:
+    from travel_planner.travel_preferences import TravelPreferences
+    from travel_planner.vehicle_dimensions import VehicleDimensions
+
+    provider = OpenRouteServiceProvider(api_key="secret-key")
+    request = RoutingRequest.create(
+        make_stops(),
+        preferences=TravelPreferences(
+            avoid_highways=True,
+            avoid_tolls=True,
+            avoid_ferries=False,
+        ),
+        vehicle_dimensions=VehicleDimensions(
+            height_m=3.05,
+            weight_kg=4100,
+        ),
+    )
+
+    payload = provider._build_payload(request)
+
+    assert payload["options"] == {
+        "avoid_features": ["highways", "tollways"],
+        "vehicle_type": "hgv",
+        "profile_params": {
+            "restrictions": {
+                "height": 3.05,
+                "weight": 4.1,
+            },
+        },
+    }
