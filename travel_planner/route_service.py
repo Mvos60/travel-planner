@@ -771,6 +771,7 @@ class RouteService:
             fallback_provider or DirectRouteProvider()
         )
         self.last_route_metrics: RouteMetrics | None = None
+        self.last_provider_error: str | None = None
 
     def set_provider(
         self,
@@ -778,6 +779,7 @@ class RouteService:
     ) -> None:
         self.provider = provider
         self.last_route_metrics = None
+        self.last_provider_error = None
 
     @property
     def capabilities(self) -> RouteProviderCapabilities:
@@ -801,12 +803,14 @@ class RouteService:
 
         try:
             route = self.provider.calculate_route(request)
+            self.last_provider_error = None
             self.last_route_metrics = getattr(
                 self.provider,
                 "last_route_metrics",
                 None,
             )
             return route
-        except RouteProviderError:
+        except RouteProviderError as error:
+            self.last_provider_error = str(error)
             self.last_route_metrics = None
             return self.fallback_provider.calculate_route(request)

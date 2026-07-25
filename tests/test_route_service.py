@@ -243,3 +243,28 @@ def test_route_service_accepts_routing_profile() -> None:
         RouteCoordinate(47.2692, 11.4041),
         RouteCoordinate(46.0569, 14.5058),
     ]
+
+
+def test_route_service_preserves_provider_error() -> None:
+    service = RouteService(
+        provider=FailingProvider(),
+        fallback_provider=DirectRouteProvider(),
+    )
+
+    service.calculate_route(make_stops())
+
+    assert service.last_provider_error == "Provider niet beschikbaar"
+    assert service.last_route_metrics is None
+
+
+def test_route_service_clears_previous_provider_error() -> None:
+    service = RouteService(
+        provider=FailingProvider(),
+        fallback_provider=DirectRouteProvider(),
+    )
+    service.calculate_route(make_stops())
+
+    service.set_provider(DirectRouteProvider())
+    service.calculate_route(make_stops())
+
+    assert service.last_provider_error is None

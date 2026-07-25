@@ -25,6 +25,7 @@ from travel_planner.route_time_estimation import (
     format_duration_seconds,
 )
 from travel_planner.routing_profile import RoutingProfile
+from travel_planner.routing_explanation import build_routing_explanation
 from travel_planner.stop import Stop
 from travel_planner.stop_editor_dialog import StopEditorDialog
 from travel_planner.trip_summary import TripSummary
@@ -93,6 +94,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         self.summary_label = Gtk.Label()
         self.trip_summary_value_labels: dict[str, Gtk.Label] = {}
         self.route_info_value_labels: dict[str, Gtk.Label] = {}
+        self.route_info_caption_labels: dict[str, Gtk.Label] = {}
         self.header_title = Gtk.Label()
         self.move_up_button = Gtk.Button(label="Omhoog")
         self.move_down_button = Gtk.Button(label="Omlaag")
@@ -466,6 +468,8 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             ("personal_duration", "Jouw reistijd"),
             ("provider", "Provider"),
             ("profile", "Profiel"),
+            ("applied", "Toegepast"),
+            ("unavailable", "Niet toegepast"),
         )
 
         for row_index, (key, caption) in enumerate(
@@ -493,6 +497,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 1,
             )
             self.route_info_value_labels[key] = value_label
+            self.route_info_caption_labels[key] = caption_label
 
         sidebar.append(route_info_grid)
 
@@ -2344,6 +2349,25 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         # Recalculate and redraw the current route.
         self._refresh_interface()
 
+        provider_error = self.route_service.last_provider_error
+
+        if provider_error is None:
+            return
+
+        print(
+            "Routeprovider fout: "
+            f"{provider_error}",
+            flush=True,
+        )
+        self._show_message(
+            "Route kon niet worden berekend",
+            (
+                f"{provider_error}\n\n"
+                "De kaart toont daarom alleen rechte lijnen "
+                "tussen de stops."
+            ),
+        )
+
     def _update_trip_summary(self) -> bool:
         """Refresh the read-only trip summary panel."""
 
@@ -2379,6 +2403,12 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             manager.active_provider_id
         )
 
+        routing_explanation = build_routing_explanation(
+            preferences=self.trip.travel_preferences,
+            vehicle_dimensions=self._current_vehicle_dimensions(),
+            capabilities=self.route_service.capabilities,
+        )
+
         route_values = {
             "distance": summary.formatted_distance,
             "duration": summary.formatted_duration,
@@ -2387,10 +2417,20 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             ),
             "provider": provider_name,
             "profile": self.trip.routing_profile.display_name,
+            "applied": routing_explanation.applied_text,
+            "unavailable": routing_explanation.unavailable_text,
         }
 
         for key, value in route_values.items():
             self.route_info_value_labels[key].set_text(value)
+
+        show_unavailable = bool(routing_explanation.unavailable)
+        self.route_info_caption_labels["unavailable"].set_visible(
+            show_unavailable
+        )
+        self.route_info_value_labels["unavailable"].set_visible(
+            show_unavailable
+        )
 
         return True
 
