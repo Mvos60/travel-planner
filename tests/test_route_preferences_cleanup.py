@@ -105,13 +105,7 @@ def test_window_passes_trip_preferences_to_route_service() -> None:
         / "window.py"
     ).read_text(encoding="utf-8")
 
-    expected_call = (
-        "self.route_service.calculate_route(\n"
-        "                self.trip.stops,\n"
-        "                profile=self.trip.routing_profile,\n"
-        "                preferences=self.trip.travel_preferences,\n"
-        "            )"
-    )
-
-    assert expected_call in source
-
+    assert "self.route_service.calculate_route(" in source
+    assert "profile=self.trip.routing_profile," in source
+    assert "preferences=self.trip.travel_preferences," in source
+    assert "vehicle_dimensions=(" in source

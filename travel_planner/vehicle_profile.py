@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from travel_planner.vehicle_dimensions import VehicleDimensions
 from uuid import uuid4
 
 
@@ -85,6 +87,19 @@ class VehicleProfile:
             raise ValueError(
                 f"{field_name} must be greater than zero."
             )
+
+    def to_vehicle_dimensions(self) -> VehicleDimensions:
+        # Convert this reusable profile for route providers.
+        return VehicleDimensions(
+            length_m=self.length_m,
+            width_m=self.width_m,
+            height_m=self.height_m,
+            weight_kg=(
+                float(self.max_weight_kg)
+                if self.max_weight_kg is not None
+                else None
+            ),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe representation."""

@@ -120,3 +120,32 @@ def test_vehicle_profile_rejects_invalid_average_speed() -> None:
             name="Camper",
             average_motorway_speed_kmh=0,
         )
+
+
+def test_vehicle_profile_converts_to_vehicle_dimensions() -> None:
+    from travel_planner.vehicle_dimensions import VehicleDimensions
+
+    profile = VehicleProfile(
+        profile_id="hymer-mlt",
+        name="Hymer ML-T",
+        length_m=7.20,
+        width_m=2.30,
+        height_m=3.05,
+        max_weight_kg=4100,
+    )
+
+    assert profile.to_vehicle_dimensions() == VehicleDimensions(
+        length_m=7.20,
+        width_m=2.30,
+        height_m=3.05,
+        weight_kg=4100.0,
+    )
+
+
+def test_vehicle_profile_converts_missing_values_to_empty_dimensions() -> None:
+    profile = VehicleProfile(
+        profile_id="basic-camper",
+        name="Basic camper",
+    )
+
+    assert profile.to_vehicle_dimensions().is_empty

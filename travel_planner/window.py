@@ -1457,6 +1457,22 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             route_coordinates=route_coordinates
         )
 
+    def _current_vehicle_dimensions(self):
+        # Resolve dimensions for the vehicle selected by the trip.
+        profile_id = self.trip.vehicle_profile_id
+
+        if profile_id is None:
+            return None
+
+        profile = self.context.vehicle_profile_repository.get(
+            profile_id
+        )
+
+        if profile is None:
+            return None
+
+        return profile.to_vehicle_dimensions()
+
     def _calculate_route_coordinates(
         self,
     ) -> list[dict]:
@@ -1468,6 +1484,9 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
                 self.trip.stops,
                 profile=self.trip.routing_profile,
                 preferences=self.trip.travel_preferences,
+                vehicle_dimensions=(
+                    self._current_vehicle_dimensions()
+                ),
             )
         ]
 
