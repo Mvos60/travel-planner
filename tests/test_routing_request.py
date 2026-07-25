@@ -66,3 +66,27 @@ def test_routing_request_copies_stop_sequence_to_tuple():
     stops.clear()
 
     assert len(request.stops) == 2
+
+
+def test_routing_request_accepts_vehicle_dimensions() -> None:
+    from travel_planner.vehicle_dimensions import VehicleDimensions
+
+    dimensions = VehicleDimensions(
+        length_m=7.20,
+        width_m=2.30,
+        height_m=3.05,
+        weight_kg=3500,
+    )
+
+    request = RoutingRequest.create(
+        make_stops(),
+        vehicle_dimensions=dimensions,
+    )
+
+    assert request.vehicle_dimensions is dimensions
+
+
+def test_routing_request_defaults_to_empty_vehicle_dimensions() -> None:
+    request = RoutingRequest.create(make_stops())
+
+    assert request.vehicle_dimensions.is_empty

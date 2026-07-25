@@ -16,6 +16,7 @@ from travel_planner.route_cache import (
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.stop import Stop
 from travel_planner.travel_preferences import TravelPreferences
+from travel_planner.vehicle_dimensions import VehicleDimensions
 
 
 DEFAULT_OSRM_BASE_URL = "https://router.project-osrm.org"
@@ -48,6 +49,9 @@ class RoutingRequest:
     preferences: TravelPreferences = field(
         default_factory=TravelPreferences
     )
+    vehicle_dimensions: VehicleDimensions = field(
+        default_factory=VehicleDimensions
+    )
 
     @classmethod
     def create(
@@ -55,6 +59,7 @@ class RoutingRequest:
         stops: Sequence[Stop],
         profile: RoutingProfile = RoutingProfile.CAMPER,
         preferences: TravelPreferences | None = None,
+        vehicle_dimensions: VehicleDimensions | None = None,
     ) -> "RoutingRequest":
         """Create an immutable request from application input."""
 
@@ -65,6 +70,11 @@ class RoutingRequest:
                 preferences
                 if preferences is not None
                 else TravelPreferences()
+            ),
+            vehicle_dimensions=(
+                vehicle_dimensions
+                if vehicle_dimensions is not None
+                else VehicleDimensions()
             ),
         )
 
@@ -743,11 +753,13 @@ class RouteService:
         stops: Sequence[Stop],
         profile: RoutingProfile = RoutingProfile.CAMPER,
         preferences: TravelPreferences | None = None,
+        vehicle_dimensions: VehicleDimensions | None = None,
     ) -> list[RouteCoordinate]:
         request = RoutingRequest.create(
             stops=stops,
             profile=profile,
             preferences=preferences,
+            vehicle_dimensions=vehicle_dimensions,
         )
 
         try:
