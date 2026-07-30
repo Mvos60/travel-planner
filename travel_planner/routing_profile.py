@@ -15,7 +15,7 @@ class RoutingProfile(str, Enum):
             RoutingProfile.FASTEST: "Fastest",
             RoutingProfile.CAMPER: "Camper",
             RoutingProfile.PHOTOGRAPHER: "Photographer",
-            RoutingProfile.CUSTOM: "Custom",
+            RoutingProfile.CUSTOM: "Aangepast",
         }
 
         return names[self]

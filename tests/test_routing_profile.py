@@ -18,7 +18,7 @@ def test_profile_has_display_names() -> None:
         RoutingProfile.PHOTOGRAPHER.display_name
         == "Photographer"
     )
-    assert RoutingProfile.CUSTOM.display_name == "Custom"
+    assert RoutingProfile.CUSTOM.display_name == "Aangepast"
 
 
 def test_unknown_profile_falls_back_to_camper() -> None:

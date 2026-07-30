@@ -365,7 +365,7 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         sidebar.append(self.route_profile_combo)
 
         preferences_label = Gtk.Label(
-            label="Travel Preferences"
+            label="Reisvoorkeuren"
         )
         preferences_label.set_xalign(0)
         preferences_label.add_css_class("heading")
@@ -1126,19 +1126,19 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
 
         options = (
             (
-                "Avoid highways",
+                "Snelwegen vermijden",
                 "avoid_highways",
                 preferences.avoid_highways,
                 capabilities.supports_avoid_highways,
             ),
             (
-                "Avoid toll roads",
+                "Tolwegen vermijden",
                 "avoid_tolls",
                 preferences.avoid_tolls,
                 capabilities.supports_avoid_tolls,
             ),
             (
-                "Avoid ferries",
+                "Veerboten vermijden",
                 "avoid_ferries",
                 preferences.avoid_ferries,
                 capabilities.supports_avoid_ferries,
@@ -1156,12 +1156,13 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             ) in options:
                 checkbox = Gtk.CheckButton(label=label)
                 checkbox.set_active(active)
-                checkbox.set_sensitive(supported)
+                checkbox.set_sensitive(True)
 
                 if not supported:
                     checkbox.set_tooltip_text(
-                        "Niet ondersteund door de huidige "
-                        "routeprovider."
+                        "Deze voorkeur wordt opgeslagen, maar "
+                        "de huidige routeprovider ondersteunt "
+                        "haar niet."
                     )
 
                 checkbox.connect(
