@@ -20,10 +20,6 @@ from travel_planner.provider_settings_dialog import (
 )
 from travel_planner.context import TravelPlannerContext
 from travel_planner.route_cache import RouteCache
-from travel_planner.route_time_estimation import (
-    estimate_personal_duration_seconds,
-    format_duration_seconds,
-)
 from travel_planner.routing_profile import RoutingProfile
 from travel_planner.routing_explanation import build_routing_explanation
 from travel_planner.route_information_panel import (
@@ -305,8 +301,10 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
         content = Gtk.Paned(
             orientation=Gtk.Orientation.HORIZONTAL,
         )
-        content.set_position(330)
+        content.set_position(400)
         content.set_wide_handle(True)
+        content.set_resize_start_child(False)
+        content.set_shrink_start_child(False)
         content.set_vexpand(True)
 
         sidebar = Gtk.Box(
@@ -2351,9 +2349,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             self.route_information_panel.update(
                 distance=summary.formatted_distance,
                 duration=summary.formatted_duration,
-                personal_duration=(
-                    self._formatted_personal_route_duration(metrics)
-                ),
                 provider=provider_name,
                 profile=self.trip.routing_profile.display_name,
                 applied=routing_explanation.applied_text,
@@ -2364,30 +2359,6 @@ class TravelPlannerWindow(Gtk.ApplicationWindow):
             )
 
         return True
-
-    def _formatted_personal_route_duration(
-        self,
-        metrics: object | None,
-    ) -> str:
-        """Return estimated driving time for the selected vehicle."""
-
-        if metrics is None or self.trip.vehicle_profile_id is None:
-            return "—"
-
-        profile = self.context.vehicle_profile_repository.get(
-            self.trip.vehicle_profile_id
-        )
-
-        if profile is None:
-            return "—"
-
-        duration_seconds = estimate_personal_duration_seconds(
-            distance_km=metrics.distance_km,
-            motorway_speed_kmh=profile.average_motorway_speed_kmh,
-            local_speed_kmh=profile.average_local_speed_kmh,
-        )
-
-        return format_duration_seconds(duration_seconds)
 
     def _show_message(
         self,

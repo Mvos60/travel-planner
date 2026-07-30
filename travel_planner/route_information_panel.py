@@ -6,13 +6,12 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 
 ROUTE_INFORMATION_ROWS = (
     ("distance", "Afstand"),
     ("duration", "Rijtijd (provider)"),
-    ("personal_duration", "Jouw reistijd"),
     ("provider", "Provider"),
     ("profile", "Profiel"),
     ("applied", "Toegepast"),
@@ -73,8 +72,10 @@ class RouteInformationPanel(Gtk.Box):
             caption_label.set_xalign(0)
 
             value_label = Gtk.Label(label="—")
-            value_label.set_xalign(1)
+            value_label.set_xalign(0)
             value_label.set_hexpand(True)
+            value_label.set_wrap(True)
+            value_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
 
             grid.attach(
                 caption_label,
@@ -102,7 +103,6 @@ class RouteInformationPanel(Gtk.Box):
         *,
         distance: str,
         duration: str,
-        personal_duration: str,
         provider: str,
         profile: str,
         applied: str,
@@ -114,7 +114,6 @@ class RouteInformationPanel(Gtk.Box):
         values = {
             "distance": distance,
             "duration": duration,
-            "personal_duration": personal_duration,
             "provider": provider,
             "profile": profile,
             "applied": applied,
