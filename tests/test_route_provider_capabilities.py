@@ -13,6 +13,7 @@ def test_capabilities_default_to_unsupported():
     assert capabilities.supports_avoid_tolls is False
     assert capabilities.supports_avoid_ferries is False
     assert capabilities.supports_vehicle_dimensions is False
+    assert capabilities.supports_road_details is False
 
 
 def test_direct_provider_has_no_routing_capabilities():
@@ -28,6 +29,7 @@ def test_public_osrm_provider_reports_limitations():
     assert capabilities.supports_avoid_tolls is False
     assert capabilities.supports_avoid_ferries is False
     assert capabilities.supports_vehicle_dimensions is False
+    assert capabilities.supports_road_details is False
 
 
 def test_route_service_exposes_provider_capabilities():
@@ -52,3 +54,4 @@ def test_route_service_exposes_custom_provider_capabilities():
     assert service.capabilities.supports_avoid_highways is True
     assert service.capabilities.supports_avoid_tolls is True
     assert service.capabilities.supports_avoid_ferries is False
+    assert service.capabilities.supports_road_details is False

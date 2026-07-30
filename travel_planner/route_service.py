@@ -80,11 +80,44 @@ class RoutingRequest:
 
 
 @dataclass(frozen=True)
+class RouteExtraSummary:
+    """One provider-reported extra-info summary row."""
+
+    value: int
+    distance_meters: float
+    amount_percent: float
+
+
+@dataclass(frozen=True)
+class RouteExtraInfo:
+    """One named OpenRouteService extra-info collection."""
+
+    name: str
+    summary: tuple[RouteExtraSummary, ...]
+
+
+@dataclass(frozen=True)
+class RouteRoadDetails:
+    """Raw, provider-reported road metadata for a route."""
+
+    extras: tuple[RouteExtraInfo, ...] = ()
+    segment_average_speeds_kmh: tuple[float, ...] = ()
+
+    @property
+    def is_empty(self) -> bool:
+        return not (
+            self.extras
+            or self.segment_average_speeds_kmh
+        )
+
+
+@dataclass(frozen=True)
 class RouteMetrics:
-    """Distance and duration reported by a routing provider."""
+    """Distance, duration, and optional provider details."""
 
     distance_meters: float
     duration_seconds: float
+    road_details: RouteRoadDetails | None = None
 
     @property
     def distance_km(self) -> float:
@@ -99,6 +132,101 @@ def _numeric_metric(value: object) -> float | None:
         if number >= 0:
             return number
     return None
+
+
+def _integer_metric(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _extract_ors_extra_info(
+    properties: dict[str, object],
+) -> tuple[RouteExtraInfo, ...]:
+    extras = properties.get("extras")
+    if not isinstance(extras, dict):
+        return ()
+
+    result: list[RouteExtraInfo] = []
+
+    for name in sorted(extras):
+        extra = extras.get(name)
+        if not isinstance(name, str) or not isinstance(extra, dict):
+            continue
+
+        summary = extra.get("summary")
+        if not isinstance(summary, list):
+            continue
+
+        rows: list[RouteExtraSummary] = []
+
+        for row in summary:
+            if not isinstance(row, dict):
+                continue
+
+            value = _integer_metric(row.get("value"))
+            distance = _numeric_metric(row.get("distance"))
+            amount = _numeric_metric(row.get("amount"))
+
+            if value is None or distance is None or amount is None:
+                continue
+
+            rows.append(
+                RouteExtraSummary(
+                    value=value,
+                    distance_meters=distance,
+                    amount_percent=amount,
+                )
+            )
+
+        result.append(
+            RouteExtraInfo(
+                name=name,
+                summary=tuple(rows),
+            )
+        )
+
+    return tuple(result)
+
+
+def _extract_ors_segment_speeds(
+    properties: dict[str, object],
+) -> tuple[float, ...]:
+    segments = properties.get("segments")
+    if not isinstance(segments, list):
+        return ()
+
+    speeds: list[float] = []
+
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+
+        average_speed = _numeric_metric(
+            segment.get("avgspeed")
+        )
+
+        if average_speed is not None:
+            speeds.append(average_speed)
+
+    return tuple(speeds)
+
+
+def _extract_ors_road_details(
+    properties: dict[str, object],
+) -> RouteRoadDetails | None:
+    details = RouteRoadDetails(
+        extras=_extract_ors_extra_info(properties),
+        segment_average_speeds_kmh=(
+            _extract_ors_segment_speeds(properties)
+        ),
+    )
+
+    return None if details.is_empty else details
 
 
 def _extract_osrm_metrics(payload: object) -> RouteMetrics | None:
@@ -136,7 +264,11 @@ def _extract_ors_metrics(payload: object) -> RouteMetrics | None:
     duration = _numeric_metric(summary.get('duration'))
     if distance is None or duration is None:
         return None
-    return RouteMetrics(distance_meters=distance, duration_seconds=duration)
+    return RouteMetrics(
+        distance_meters=distance,
+        duration_seconds=duration,
+        road_details=_extract_ors_road_details(properties),
+    )
 
 
 @dataclass(frozen=True)
@@ -147,6 +279,7 @@ class RouteProviderCapabilities:
     supports_avoid_tolls: bool = False
     supports_avoid_ferries: bool = False
     supports_vehicle_dimensions: bool = False
+    supports_road_details: bool = False
 
 
 class RouteProviderError(RuntimeError):
@@ -499,6 +632,7 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
         supports_avoid_tolls=True,
         supports_avoid_ferries=True,
         supports_vehicle_dimensions=True,
+        supports_road_details=True,
     )
 
     def __init__(
@@ -608,6 +742,13 @@ class OpenRouteServiceProvider(BaseHttpRouteProvider):
                     stop.latitude,
                 ]
                 for stop in request.stops
+            ],
+            "extra_info": [
+                "waytype",
+                "waycategory",
+            ],
+            "attributes": [
+                "avgspeed",
             ],
         }
 

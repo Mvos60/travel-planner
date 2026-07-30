@@ -120,7 +120,14 @@ def test_ors_builds_post_geojson_request() -> None:
         "coordinates": [
             [4.6, 44.735],
             [11.4041, 47.2692],
-        ]
+        ],
+        "extra_info": [
+            "waytype",
+            "waycategory",
+        ],
+        "attributes": [
+            "avgspeed",
+        ],
     }
 
     assert route == [
@@ -302,6 +309,7 @@ def test_ors_capabilities_include_avoid_options() -> None:
     assert capabilities.supports_avoid_tolls is True
     assert capabilities.supports_avoid_ferries is True
     assert capabilities.supports_vehicle_dimensions is True
+    assert capabilities.supports_road_details is True
 
 
 def test_ors_supports_vehicle_dimensions() -> None:
